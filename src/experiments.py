@@ -1,7 +1,6 @@
 import os
 
 import torch
-import numpy as np
 import sys
 
 from envs.AYS.AYS_Environment import *
