@@ -18,25 +18,25 @@ if sys.version_info[0] < 3:
 # # assert pv.version_info == (0, 2, 0), "please get the correct version (0.2.0) of pyviability (and don't forget to (re)run the installation)"
 
 
-NB_USING_NOPYTHON = True
-USING_NUMBA = True
-if USING_NUMBA:
-    try:
-        import numba as nb
-    except ImportError:
-        warn.warn("couldn't import numba, continuing without", ImportWarning)
-        USING_NUMBA = False
-
-
-if USING_NUMBA:
-    jit = nb.jit
-else:
-    def dummy_decorator_with_args(*args, **kwargs):
-        if args and callable(args[0]):
-            return args[0]
-        else:
-            return dummy_decorator_with_args
-    jit = dummy_decorator_with_args
+# NB_USING_NOPYTHON = True
+# USING_NUMBA = True
+# if USING_NUMBA:
+#     try:
+#         import numba as nb
+#     except ImportError:
+#         warn.warn("couldn't import numba, continuing without", ImportWarning)
+#         USING_NUMBA = False
+#
+#
+# if USING_NUMBA:
+#     jit = nb.jit
+# else:
+#     def dummy_decorator_with_args(*args, **kwargs):
+#         if args and callable(args[0]):
+#             return args[0]
+#         else:
+#             return dummy_decorator_with_args
+#     jit = dummy_decorator_with_args
 
 
 
@@ -122,20 +122,20 @@ def globalize_dictionary(dictionary, module="__main__"):
 
 
 # JH: maybe transform the whole to log variables since W,S can go to infinity...
-def _AYS_rhs(AYS, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
-    A, W, S = AYS
-    U = W / epsilon
-    F = U / (1 + (S/sigma)**rho)
-    R = U - F
-    E = F / phi
-    Adot = E - A / tau_A
-    Wdot = (beta - theta * A) * W
-    Sdot = R - S / tau_S
-    return Adot, Wdot, Sdot
-
-
-AYS_rhs = nb.jit(_AYS_rhs, nopython=NB_USING_NOPYTHON)
-# AYS_rhs = _AYS_rhs  # used for debugging
+# def _AYS_rhs(AYS, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
+#     A, W, S = AYS
+#     U = W / epsilon
+#     F = U / (1 + (S/sigma)**rho)
+#     R = U - F
+#     E = F / phi
+#     Adot = E - A / tau_A
+#     Wdot = (beta - theta * A) * W
+#     Sdot = R - S / tau_S
+#     return Adot, Wdot, Sdot
+#
+#
+# AYS_rhs = nb.jit(_AYS_rhs, nopython=NB_USING_NOPYTHON)
+# # AYS_rhs = _AYS_rhs  # used for debugging
 
 
 #@jit(nopython=NB_USING_NOPYTHON)

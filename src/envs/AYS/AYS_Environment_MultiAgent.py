@@ -113,11 +113,13 @@ class AYS_Environment(Env):
         self.max_steps = max_steps
         self.gamma = discount
 
+        self.num_agents = 2
+
         # The grid defines the number of cells, hence we have 8x8 possible states
         self.final_state = False
-        self.reward = 0
+        self.reward = [0] * self.num_agents
 
-        self.reward_type = reward_type
+        self.reward_type = reward_type  # TODO editing rewards gonna be difficult with multi agents somehow
         self.reward_function = self.get_reward_function(reward_type)
 
         timeStart = 0
@@ -144,7 +146,7 @@ class AYS_Environment(Env):
         """
         self.A_PB = self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])  # Planetary boundary: 0.5897
         self.Y_SF = self._compactification(ays.boundary_parameters["W_SF"],
-                                           self.X_MID[1])  # Social foundations as boundary: 0.3636
+                                           self.X_MID[1])  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
         self.S_LIMIT = 0
         self.PB = np.array([self.A_PB, self.Y_SF, 0])
 
@@ -180,11 +182,15 @@ class AYS_Environment(Env):
         # else:
         #     parameter_list = [action]
 
+        """ 
+        first row of below is the current state and second row is next state, in order A Y S
+        """
         traj_one_step = odeint(ays.AYS_rescaled_rhs, self.state, [self.t, next_t], args=parameter_list[0], mxstep=50000)
 
         a = traj_one_step[:, 0][-1]
         y = traj_one_step[:, 1][-1]
         s = traj_one_step[:, 2][-1]
+
         return np.array((a, y, s))
 
     def reset(self):
