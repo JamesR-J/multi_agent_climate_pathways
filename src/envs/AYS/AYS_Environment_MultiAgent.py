@@ -139,7 +139,7 @@ class AYS_Environment(Env):
         # Definitions from outside
         self.current_state = [0.5, 0.5, 0.5]
         self.state = self.start_state = self.current_state
-        self.observation_space = self.state
+        self.observation_space = self.state  # TODO adjust this error
 
         """
         This values define the planetary boundaries of the AYS model
