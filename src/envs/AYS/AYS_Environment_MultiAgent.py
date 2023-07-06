@@ -8,6 +8,7 @@ in combination with the DRL-agent.
 """
 
 import sys
+import torch
 
 import numpy as np
 from scipy.integrate import odeint
@@ -81,21 +82,21 @@ class AYS_Environment(Env):
     """
     dimensions = np.array(['A', 'Y', 'S'])
     management_options = ['default', 'LG', 'ET', 'LG+ET']
-    action_space = [(False, False), (True, False), (False, True), (True, True)]
+    action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])  # TODO 0/1 or true/false ?
     action_space_number = np.arange(len(action_space))
     # AYS example from Kittel et al. 2017:
-    tau_A = 50
-    tau_S = 50
-    beta = 0.03
-    beta_LG = 0.015
-    eps = 147
-    A_offset = 600
+    tau_A = 50  # carbon decay - single val
+    tau_S = 50  # renewable knowledge stock decay - probs single val
+    beta = 0.03  # economic output growth - multi val
+    beta_LG = 0.015  # halved economic output growth - multi val
+    eps = 147  # energy efficiency param - single val
+    A_offset = 600  # i have no idea # TODO check this
     theta = beta / (950 - A_offset)  # beta / ( 950 - A_offset(=350) )
     # theta = 8.57e-5
 
-    rho = 2.
-    sigma = 4e12
-    sigma_ET = sigma * 0.5 ** (1 / rho)
+    rho = 2.  # renewable knowledge learning rate - single val?
+    sigma = 4e12  # break even knowledge - multi val
+    sigma_ET = sigma * 0.5 ** (1 / rho)  # can't remember the change but it's somewhere - multi val
     # sigma_ET = 2.83e12
 
     phi = 4.7e10
@@ -113,7 +114,17 @@ class AYS_Environment(Env):
         self.max_steps = max_steps
         self.gamma = discount
 
-        self.num_agents = 2
+        self.num_agents = 2  # TODO remove this hardcoding later on
+        self.tau_A = torch.tensor([self.tau_A]).repeat(self.num_agents, 1)
+        self.tau_S = torch.tensor([self.tau_S]).repeat(self.num_agents, 1)
+        self.beta = torch.tensor([self.beta]).repeat(self.num_agents, 1)
+        self.beta_LG = torch.tensor([self.beta_LG]).repeat(self.num_agents, 1)
+        self.eps = torch.tensor([self.eps]).repeat(self.num_agents, 1)
+        self.theta = torch.tensor([self.theta]).repeat(self.num_agents, 1)
+        self.rho = torch.tensor([self.rho]).repeat(self.num_agents, 1)
+        self.sigma = torch.tensor([self.sigma]).repeat(self.num_agents, 1)
+        self.sigma_ET = torch.tensor([self.sigma_ET]).repeat(self.num_agents, 1)
+        self.phi = torch.tensor([self.phi]).repeat(self.num_agents, 1)
 
         # The grid defines the number of cells, hence we have 8x8 possible states
         self.final_state = False
@@ -137,7 +148,7 @@ class AYS_Environment(Env):
         self.X_MID = [240, 7e13, 5e11]
 
         # Definitions from outside
-        self.current_state = [0.5, 0.5, 0.5]
+        self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
         self.state = self.start_state = self.current_state
         self.observation_space = self.state  # TODO adjust this error
 
@@ -161,37 +172,43 @@ class AYS_Environment(Env):
         """
 
         next_t = self.t + self.dt
-        self.state = self._perform_step(action, next_t)
+        self.state = self._perform_step(action, next_t)  # TODO needs reworking to ensure A is same for all agents - should probably include an assertion check too
         self.t = next_t
-        if self._arrived_at_final_state():
-            self.final_state = True
+        # if self._arrived_at_final_state():  # TODO reinstate for marl maybe check each one but maybe it only ends if both achieve final state? what even is the desired final state
+        #     self.final_state = True
 
-        reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
+        # reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
-        if not self._inside_planetary_boundaries():
-            self.final_state = True
+        # if not self._inside_planetary_boundaries():
+        #     self.final_state = True
 
-        if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
-            reward += self.calculate_expected_final_reward()
+        # if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
+        #     reward += self.calculate_expected_final_reward()
+
+        reward = 0  # TODO remove this and reinstate the above
 
         return self.state, reward, self.final_state, None
 
     def _perform_step(self, action, next_t):
         # if type(action) == "np.array":
-        parameter_list = self._get_parameters(action)
+        parameter_matrix = self._get_parameters(action)
         # else:
         #     parameter_list = [action]
 
-        """ 
-        first row of below is the current state and second row is next state, in order A Y S
-        """
-        traj_one_step = odeint(ays.AYS_rescaled_rhs, self.state, [self.t, next_t], args=parameter_list[0], mxstep=50000)
+        # print(parameter_matrix)
+        # sys.exit()
 
-        a = traj_one_step[:, 0][-1]
-        y = traj_one_step[:, 1][-1]
-        s = traj_one_step[:, 2][-1]
+        listy = []
+        for ind, row in enumerate(parameter_matrix):  # TODO rewrite this cus the whole for loop is bad times lol
+            traj_one_step = odeint(ays.AYS_rescaled_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
+            # traj_one_step = odeint(ays._AYS_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
+            print(traj_one_step)
+            sys.exit()
+            listy.append(traj_one_step[1])
 
-        return np.array((a, y, s))
+        print(torch.tensor(np.array(listy)))
+        # sys.exit()
+        return torch.tensor(np.array(listy))
 
     def reset(self):
         # self.state=np.array(self.random_StartPoint())
@@ -423,15 +440,16 @@ class AYS_Environment(Env):
 
     def current_state_region_StartPoint(self):
 
-        self.state = [0, 0, 0]
+        self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
         limit_start = 0.05
-        while not self._inside_planetary_boundaries():
-            # self.state=self.current_state + np.random.uniform(low=-limit_start, high=limit_start, size=3)
-            self.state[0] = self.current_state[0] + np.random.uniform(low=-limit_start, high=limit_start)
-            self.state[1] = self.current_state[1] + np.random.uniform(low=-limit_start, high=limit_start)
-            self.state[2] = self.current_state[2] #+ np.random.uniform(low=-limit_start, high=limit_start)
 
-        # print(self.state)
+        # while not self._inside_planetary_boundaries():  # TODO need to reinstate this with marl
+
+        adjustment = torch.tensor(
+            np.random.uniform(low=-limit_start, high=limit_start, size=(self.current_state.size(0), 2)))
+        self.state = self.current_state.clone()
+        self.state[:, :2] += adjustment
+
         return self.state
 
     def _inside_box(self):
@@ -446,7 +464,7 @@ class AYS_Environment(Env):
                 inside_box = False
         return inside_box
 
-    def _get_parameters(self, action=0):
+    def _get_parameters(self, action=None):
 
         """
         This function is needed to return the parameter set for the chosen management option.
@@ -456,19 +474,34 @@ class AYS_Environment(Env):
             -action_number: Number of the action in the actionset.
              Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
         """
-        if action < len(self.action_space):
-            action_tuple = self.action_space[action]
-        else:
-            print("ERROR! Management option is not available!" + str(action))
-            print(get_linenumber())
-            sys.exit(1)
+        # if action < len(self.action_space):
+        #     action_tuple = self.action_space[action]
+        # else:
+        #     print("ERROR! Management option is not available!" + str(action))
+        #     print(get_linenumber())
+        #     sys.exit(1)
 
-        parameter_list = [(self.beta_LG if action_tuple[0] else self.beta,
-                           self.eps, self.phi, self.rho,
-                           self.sigma_ET if action_tuple[1] else self.sigma,
-                           self.tau_A, self.tau_S, self.theta)]
+        action = None
+        if action is None:  # TODO not sure this best workaround for default action
+            action = torch.tensor([0]).repeat(self.num_agents, 1)
 
-        return parameter_list
+        selected_rows = self.action_space[action.squeeze(), :]
+        action_matrix = selected_rows.view(2, 2)
+
+        mask_1 = action_matrix[:, 0].unsqueeze(1)
+        mask_2 = action_matrix[:, 1].unsqueeze(1)
+
+        beta = torch.where(mask_1, self.beta_LG, self.beta)
+        sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
+
+        parameter_matrix = torch.cat((beta, self.eps, self.phi, self.rho, sigma, self.tau_A, self.tau_S, self.theta), dim=1)
+
+        # parameter_list = [(self.beta_LG if action_tuple[0] else self.beta,
+        #                    self.eps, self.phi, self.rho,
+        #                    self.sigma_ET if action_tuple[1] else self.sigma,
+        #                    self.tau_A, self.tau_S, self.theta)]
+
+        return parameter_matrix
 
     def plot_run(self, learning_progress, fig, axes, colour, fname=None,):
         timeStart = 0

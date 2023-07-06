@@ -4,7 +4,7 @@ import numpy as np
 import random
 from IPython.display import clear_output
 import torch
-import shap
+# import shap
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
@@ -183,24 +183,24 @@ class PER_IS_ReplayBuffer:
         return self.size
 
 
-def feature_importance(agent_net, buffer, n_points, v=False, scalar=False):
-    features = ["A", "Y", "S"]
-    if v:
-        features = ["A", "Y", "S", "dA", "dY", "dS"]
-
-    data = buffer.sample(n_points)[0]
-
-    explainer = shap.DeepExplainer(agent_net,
-                                   torch.from_numpy(data).float().to(DEVICE))
-    shap_q_values = explainer.shap_values(torch.from_numpy(data).float().to(DEVICE))
-    if scalar:
-        shap_values = np.array(shap_q_values)
-    else:
-        shap_values = np.array(np.sum(shap_q_values, axis=0))
-    shap.summary_plot(shap_values,
-                        features=data,
-                        feature_names=features,
-                        plot_type='violin', show=False, sort=False)
+# def feature_importance(agent_net, buffer, n_points, v=False, scalar=False):
+#     features = ["A", "Y", "S"]
+#     if v:
+#         features = ["A", "Y", "S", "dA", "dY", "dS"]
+#
+#     data = buffer.sample(n_points)[0]
+#
+#     explainer = shap.DeepExplainer(agent_net,
+#                                    torch.from_numpy(data).float().to(DEVICE))
+#     shap_q_values = explainer.shap_values(torch.from_numpy(data).float().to(DEVICE))
+#     if scalar:
+#         shap_values = np.array(shap_q_values)
+#     else:
+#         shap_values = np.array(np.sum(shap_q_values, axis=0))
+#     shap.summary_plot(shap_values,
+#                         features=data,
+#                         feature_names=features,
+#                         plot_type='violin', show=False, sort=False)
 
 
 def plot_end_state_matrix(results):

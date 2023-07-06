@@ -180,6 +180,7 @@ class AYS_Environment(Env):
         # else:
         #     parameter_list = [action]
 
+        print(parameter_list[0])
         traj_one_step = odeint(ays.AYS_rescaled_rhs, self.state, [self.t, next_t], args=parameter_list[0], mxstep=50000)
 
         a = traj_one_step[:, 0][-1]
@@ -456,6 +457,9 @@ class AYS_Environment(Env):
             print("ERROR! Management option is not available!" + str(action))
             print(get_linenumber())
             sys.exit(1)
+
+        # print(self.beta)
+        # print(self.beta_LG)
 
         parameter_list = [(self.beta_LG if action_tuple[0] else self.beta,
                            self.eps, self.phi, self.rho,

@@ -1,15 +1,14 @@
 from envs.AYS.AYS_Environment_MultiAgent import *
+# from envs.AYS.AYS_Environment import *
 from learn_class import Learn
 
-class Markov_Learn(Learn):
+class PB_Learn(Learn):
     def __init__(self, **kwargs):
-        super(Markov_Learn, self).__init__(**kwargs)
-        self.env = velocity_AYS(**kwargs)
-        self.state_dim = len(self.env.observation_space) * 2
-        self.group_name = "Markov"
+        super(PB_Learn, self).__init__(**kwargs)
+        self.env = AYS_Environment(**kwargs)
 
 if __name__ == "__main__":
-    experiment = Markov_Learn(wandb_save=False, reward_type="PB", verbose=True)
+    experiment = PB_Learn(wandb_save=False, reward_type="PB", verbose=True)
     experiment.set_agent("DuelDDQN")
     # experiment.learning_loop_offline(128, 2 ** 13, per_is=True)
 
@@ -24,7 +23,8 @@ if __name__ == "__main__":
         for i in range(10):
 
             # get state
-            action = experiment.agent.get_action(state)
+            # action = experiment.agent.get_action(state)
+            action = (0, 0)
             # print(action)
 
             # step through environment
@@ -34,6 +34,8 @@ if __name__ == "__main__":
             episode_reward += reward
             # prepare for next iteration
             state = next_state
+
+            print(state)
 
             # if the episode is finished we stop there
             if done:
