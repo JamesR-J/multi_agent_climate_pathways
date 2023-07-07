@@ -150,16 +150,17 @@ class AYS_Environment(Env):
         # Definitions from outside
         self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
         self.state = self.start_state = self.current_state
-        self.observation_space = self.state  # TODO adjust this error
+        self.observation_space = self.state
 
         """
         This values define the planetary boundaries of the AYS model
         """
-        self.A_PB = self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])  # Planetary boundary: 0.5897
-        self.Y_SF = self._compactification(ays.boundary_parameters["W_SF"],
-                                           self.X_MID[1])  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
-        self.S_LIMIT = 0
-        self.PB = np.array([self.A_PB, self.Y_SF, 0])
+        self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(self.num_agents, 1)  # Planetary boundary: 0.5897
+        self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"],
+                                           self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
+        self.S_LIMIT = torch.tensor([0]).repeat(self.num_agents, 1)
+        # self.PB = np.array([self.A_PB, self.Y_SF, 0])
+        self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT))
 
         # print("Init AYS Environment!",
         #       "\nReward Type: " + reward_type,
@@ -172,15 +173,18 @@ class AYS_Environment(Env):
         """
 
         next_t = self.t + self.dt
-        self.state = self._perform_step(action, next_t)  # TODO needs reworking to ensure A is same for all agents - should probably include an assertion check too
+        self.state = self._perform_step(action, next_t)
+
+        assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
+
         self.t = next_t
         # if self._arrived_at_final_state():  # TODO reinstate for marl maybe check each one but maybe it only ends if both achieve final state? what even is the desired final state
         #     self.final_state = True
 
         # reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
-        # if not self._inside_planetary_boundaries():
-        #     self.final_state = True
+        if not self._inside_planetary_boundaries():
+            self.final_state = True
 
         # if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
         #     reward += self.calculate_expected_final_reward()
@@ -195,20 +199,35 @@ class AYS_Environment(Env):
         # else:
         #     parameter_list = [action]
 
-        # print(parameter_matrix)
-        # sys.exit()
+        parameter_vector = parameter_matrix.flatten()
+        parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
 
-        listy = []
-        for ind, row in enumerate(parameter_matrix):  # TODO rewrite this cus the whole for loop is bad times lol
-            traj_one_step = odeint(ays.AYS_rescaled_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
-            # traj_one_step = odeint(ays._AYS_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
-            print(traj_one_step)
-            sys.exit()
-            listy.append(traj_one_step[1])
+        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, self.state.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
 
-        print(torch.tensor(np.array(listy)))
+        # ys_matrix = self.state[:, 1:]
+        # ys_inv_matrix = 1 - ys_matrix
+        # ys_inv_rho_matrix = ys_inv_matrix.clone()
+        # ys_inv_rho_matrix[:, 1] = ys_inv_rho_matrix[:, 1] ** parameter_matrix[:, 3]
+        # Y_matrix = (self.X_MID[1] * ys_matrix[:, 0] / ys_inv_matrix[:, 0]).view(2, 1)
+        # K_matrix = (ys_inv_rho_matrix[:, 1] / (ys_inv_rho_matrix[:, 1] + (self.X_MID[2] * ys_matrix[:, 1] / parameter_matrix[:, 4]) ** parameter_matrix[:, 3])).view(2, 1)
+        # E_matrix = K_matrix / (parameter_matrix[:, 2] * parameter_matrix[:, 1]).view(2, 1) * Y_matrix
+        # E_tot = torch.sum(E_matrix).repeat(self.num_agents, 1)
+        #
+        # parameter_matrix = torch.cat((parameter_matrix, E_tot), dim=1)
+        #
+        # listy = []
+        # for ind, row in enumerate(parameter_matrix):
+        #     traj_one_step = odeint(ays.AYS_rescaled_rhs_marl, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
+        #     # traj_one_step = odeint(ays._AYS_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
+        #     # print(traj_one_step)
+        #     # sys.exit()
+        #     listy.append(traj_one_step[1])
+        #
+        # print(torch.tensor(np.array(listy)))
         # sys.exit()
-        return torch.tensor(np.array(listy))
+        # return torch.tensor(np.array(listy))
+
+        return torch.tensor(traj_one_step[1]).view(-1, 3)
 
     def reset(self):
         # self.state=np.array(self.random_StartPoint())
@@ -370,15 +389,15 @@ class AYS_Environment(Env):
             return np.infty
         return x_mid * y / (1 - y)
 
-    def _inside_planetary_boundaries(self):
-        a, y, s = self.state
+    def _inside_planetary_boundaries(self):  # TODO confirm this is correct
         is_inside = True
-        if a > self.A_PB or y < self.Y_SF or s < self.S_LIMIT:
+        # if a > self.A_PB or y < self.Y_SF or s < self.S_LIMIT:
+        if torch.all(self.state[:, 0] > self.A_PB) or torch.all(self.state[:, 1] < self.Y_SF) or torch.all(self.state[:, 2] < self.S_LIMIT):
             is_inside = False
-            # print("Outside PB!")
+            print("Outside PB!")
         return is_inside
 
-    def _arrived_at_final_state(self):
+    def _arrived_at_final_state(self):  # TODO rewrite this and reinstate in the step function
         a, y, s = self.state
         if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(
                 y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
@@ -443,12 +462,17 @@ class AYS_Environment(Env):
         self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
         limit_start = 0.05
 
-        # while not self._inside_planetary_boundaries():  # TODO need to reinstate this with marl
+        while not self._inside_planetary_boundaries():
 
-        adjustment = torch.tensor(
-            np.random.uniform(low=-limit_start, high=limit_start, size=(self.current_state.size(0), 2)))
-        self.state = self.current_state.clone()
-        self.state[:, :2] += adjustment
+            adjustment = torch.tensor(
+                np.random.uniform(low=-limit_start, high=limit_start, size=(self.current_state.size(0), 2)))
+            self.state = self.current_state.clone()
+            self.state[:, :2] += adjustment
+
+            const_val = self.state[0, 0]
+            self.state[:, 0] = const_val
+
+            assert torch.allclose(self.state[:, 0], const_val), "First column values are not equal."
 
         return self.state
 
@@ -486,7 +510,8 @@ class AYS_Environment(Env):
             action = torch.tensor([0]).repeat(self.num_agents, 1)
 
         selected_rows = self.action_space[action.squeeze(), :]
-        action_matrix = selected_rows.view(2, 2)
+        action_matrix = selected_rows#.view(2, 2)
+
 
         mask_1 = action_matrix[:, 0].unsqueeze(1)
         mask_2 = action_matrix[:, 1].unsqueeze(1)
@@ -495,11 +520,6 @@ class AYS_Environment(Env):
         sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
 
         parameter_matrix = torch.cat((beta, self.eps, self.phi, self.rho, sigma, self.tau_A, self.tau_S, self.theta), dim=1)
-
-        # parameter_list = [(self.beta_LG if action_tuple[0] else self.beta,
-        #                    self.eps, self.phi, self.rho,
-        #                    self.sigma_ET if action_tuple[1] else self.sigma,
-        #                    self.tau_A, self.tau_S, self.theta)]
 
         return parameter_matrix
 

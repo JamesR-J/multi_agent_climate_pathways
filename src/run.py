@@ -23,7 +23,7 @@ if __name__ == "__main__":
         for i in range(10):
 
             # get state
-            # action = experiment.agent.get_action(state)
+            # action = experiment.agent.get_action(state)  # TODO reinstate this once got env to work can figure out the MARL algo
             action = (0, 0)
             # print(action)
 
@@ -35,7 +35,7 @@ if __name__ == "__main__":
             # prepare for next iteration
             state = next_state
 
-            print(state)
+            # print(state)
 
             # if the episode is finished we stop there
             if done:

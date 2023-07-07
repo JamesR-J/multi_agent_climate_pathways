@@ -10,6 +10,8 @@ import numpy as np
 import warnings as warn
 import sys
 
+import torch
+
 if sys.version_info[0] < 3:
     warn.warn("this code has been tested in Python3 only", category=DeprecationWarning)
 
@@ -164,7 +166,7 @@ def AYS_rescaled_rhs(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigm
     return adot, ydot, sdot
 
 
-def AYS_rescaled_rhs_marl(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
+def AYS_rescaled_rhs_marl(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None, E=None):
     a, y, s = ays
     # A, y, s = Ays
 
@@ -182,6 +184,73 @@ def AYS_rescaled_rhs_marl(ays, t=0, beta=None, epsilon=None, phi=None, rho=None,
     sdot = (1 - K) * s_inv * s_inv * Y / (epsilon * S_mid) - s * s_inv / tau_S
 
     return adot, ydot, sdot
+
+
+def AYS_rescaled_rhs_marl2(ays, t=0, *args):
+    """
+    beta = args[0]
+    epsilon = args[1]
+    phi = args[2]
+    rho = args[3]
+    sigma = args[4]
+    tau_A = args[5]
+    tau_S = args[6]
+    theta = args[7]
+    """
+    num_agents = int(args[-1])
+
+    ays = ays.reshape((-1, 3))
+    args = np.array(args)[:-1].reshape((-1, 8))
+
+    ays_matrix = torch.tensor(ays)
+    args = torch.tensor(args)
+    ays_inv_matrix = 1 - ays_matrix
+    ays_inv_s_rho_matrix = ays_inv_matrix.clone()
+    ays_inv_s_rho_matrix[:, 2] = ays_inv_s_rho_matrix[:, 2] ** args[:, 3]
+    # A_matrix = (A_mid * ays_matrix[:, 0] / ays_inv_matrix[:, 0]).view(2, 1)
+    A_matrix = (A_mid * ays_matrix[0, 0].repeat(num_agents, 1) / ays_inv_matrix[0, 0].repeat(num_agents, 1)).view(num_agents, 1)  # TODO is this okay?? just taken the first value and left it assumed as that lol
+    Y_matrix = (W_mid * ays_matrix[:, 1] / ays_inv_matrix[:, 1]).view(num_agents, 1)
+    K_matrix = (ays_inv_s_rho_matrix[:, 2] / (ays_inv_s_rho_matrix[:, 2] + (S_mid * ays_matrix[:, 2] / args[:, 4]) ** args[:, 3])).view(num_agents, 1)
+    E_matrix = K_matrix / (args[:, 2] * args[:, 1]).view(num_agents, 1) * Y_matrix
+    E_tot = torch.sum(E_matrix).repeat(num_agents, 1)
+
+    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)  # TODO done the same here need to check if okay
+    ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix)
+    sdot = (1 - K_matrix) * (ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2]).view(num_agents, 1) * Y_matrix / (args[:, 1] * S_mid).view(num_agents, 1) - (ays_matrix[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]).view(num_agents, 1)
+
+    final_matrix = torch.cat((adot, ydot, sdot), dim=1)
+
+    # print(ays)
+    # print(args)
+
+    # def calc_single_agent(ays, params):
+    #     a, y, s = ays
+    #     a_inv = 1 - a
+    #     y_inv = 1 - y
+    #     s_inv = 1 - s
+    #     s_inv_rho = s_inv ** params[3]
+    #     K = s_inv_rho / (s_inv_rho + (S_mid * s / params[4]) ** params[3])
+    #
+    #     Y = W_mid * y / y_inv
+    #     A = A_mid * a / a_inv
+    #
+    #     E = K / (params[2] * params[1]) * Y
+    #     print(E)
+    #
+    #     adot = (E - A / tau_A) * (a_inv * a_inv / A_mid)
+    #     ydot = y * y_inv * (params[0] - params[7] * A)
+    #     sdot = (1 - K) * s_inv * s_inv * Y / (params[1] * S_mid) - s * s_inv / params[6]
+    #
+    #     return E, ydot, sdot
+    #
+    # listy = []
+    #
+    # for agent in range(num_agents):
+    #     listy.append(calc_single_agent(ays[agent], args[agent]))
+    #
+    # print(listy)
+
+    return final_matrix.flatten()
 
 
 # @jit(nopython=NB_USING_NOPYTHON)

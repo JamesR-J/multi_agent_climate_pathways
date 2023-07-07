@@ -45,7 +45,7 @@ adot_3 = (E - A / tau_A) * (a_inv * a_inv / A_mid)
 
 def AYS_rescaled_rhs_marl(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None, E=None):
     a, y, s = ays
-    print(a, y ,s)
+    # print(a, y, s)
     # A, y, s = Ays
 
     s_inv = 1 - s
@@ -59,6 +59,7 @@ def AYS_rescaled_rhs_marl(ays, t=0, beta=None, epsilon=None, phi=None, rho=None,
     E = K / (phi * epsilon) * Y  # TODO is it accurate to assume with pre calcs or shuld it be done better cus ays change within the odeint thingo
     # print(E)
     adot = (E - A / tau_A) * (a_inv * a_inv / A_mid)
+    print(adot)
     ydot = y * w_inv * ( beta - theta * A )
     sdot = (1 - K) * s_inv * s_inv * Y / (epsilon * S_mid) - s * s_inv / tau_S
 
@@ -83,6 +84,7 @@ row = (3.0000e-02, 1.4700e+02, 4.7000e+10, 2.0000e+00, 4.0000e+12, 5.0000e+01,
 
 result = odeint(AYS_rescaled_rhs_marl, state, [0, 1], args=row, mxstep=50000)
 print(result)
+print(0.5048813 + 0.005761384894964823)
 
 #### answer is [[0.50488132 0.52151895 0.5       ]
  # [0.5109028  0.52370622 0.49900241]]
