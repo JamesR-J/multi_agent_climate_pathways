@@ -183,8 +183,8 @@ class AYS_Environment(Env):
 
         # reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
-        if not self._inside_planetary_boundaries():
-            self.final_state = True
+        # if not self._inside_planetary_boundaries():
+        #     self.final_state = True
 
         # if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
         #     reward += self.calculate_expected_final_reward()
