@@ -75,15 +75,16 @@ ays.globalize_dictionary(ays.grid_parameters, module=ays)
 ays.globalize_dictionary(ays.boundary_parameters, module=ays)    
 
 
-def create_figure(Azimut=170, Elevation=25, label=None, colors=None, ax=None, ticks=True, plot_boundary=True,):
+def create_figure(Azimut=170, Elevation=25, label=None, colors=None, ax=None, ticks=True, plot_boundary=True, reset=False, ax3d=None, fig3d=None):
 
-    if ax is None:
-        fig3d = plt.figure(figsize=(9,9))
-        #ax3d = plt3d.Axes3D(fig3d)
-        ax3d = fig3d.add_subplot(111, projection="3d")
-    else:
-        ax3d=ax
-        fig3d=None
+    if not reset:
+        if ax is None:
+            fig3d = plt.figure(figsize=(10, 8))
+            #ax3d = plt3d.Axes3D(fig3d)
+            ax3d = fig3d.add_subplot(111, projection="3d")
+        else:
+            ax3d=ax
+            fig3d=None
 
     if ticks==True:
         make_3d_ticks(ax3d)

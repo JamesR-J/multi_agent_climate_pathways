@@ -106,7 +106,7 @@ class AYS_Environment(Env):
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
     def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, **kwargs):
+                 plot_progress=False, num_agents=2, **kwargs):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -114,7 +114,7 @@ class AYS_Environment(Env):
         self.max_steps = max_steps
         self.gamma = discount
 
-        self.num_agents = 2  # TODO remove this hardcoding later on
+        self.num_agents = num_agents
         self.tau_A = torch.tensor([self.tau_A]).repeat(self.num_agents, 1)
         self.tau_S = torch.tensor([self.tau_S]).repeat(self.num_agents, 1)
         self.beta = torch.tensor([self.beta]).repeat(self.num_agents, 1)
@@ -140,9 +140,9 @@ class AYS_Environment(Env):
 
         self.sim_time_step = np.linspace(timeStart, dt, intSteps)
 
-        self.green_fp = [0, 1, 1]
-        self.brown_fp = [0.6, 0.4, 0]
-        self.final_radius = 0.05  # Attention depending on how large the radius is, the BROWN_FP can be reached!
+        self.green_fp = torch.tensor([0, 1, 1]).repeat(self.num_agents, 1)
+        self.brown_fp = torch.tensor([0.6, 0.4, 0]).repeat(self.num_agents, 1)
+        self.final_radius = torch.tensor([0.05]).repeat(self.num_agents, 1)  # Attention depending on how large the radius is, the BROWN_FP can be reached!
         self.color_list = ays_plot.color_list
 
         self.X_MID = [240, 7e13, 5e11]
@@ -178,8 +178,8 @@ class AYS_Environment(Env):
         assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
 
         self.t = next_t
-        # if self._arrived_at_final_state():  # TODO reinstate for marl maybe check each one but maybe it only ends if both achieve final state? what even is the desired final state
-        #     self.final_state = True
+        if self._arrived_at_final_state():  # TODO currently is only when both agents get to a FP is this correct or do we only need one or something? or maybe individually cancel the ones that make it to a fp like end their ep early
+            self.final_state = True
 
         # reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
@@ -390,40 +390,45 @@ class AYS_Environment(Env):
         return x_mid * y / (1 - y)
 
     def _inside_planetary_boundaries(self):  # TODO confirm this is correct
+        a = self.state[:, 0]
+        y = self.state[:, 1]
+        s = self.state[:, 2]
         is_inside = True
-        # if a > self.A_PB or y < self.Y_SF or s < self.S_LIMIT:
-        if torch.all(self.state[:, 0] > self.A_PB) or torch.all(self.state[:, 1] < self.Y_SF) or torch.all(self.state[:, 2] < self.S_LIMIT):
+
+        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(s < self.S_LIMIT):
             is_inside = False
             print("Outside PB!")
         return is_inside
 
-    def _arrived_at_final_state(self):  # TODO rewrite this and reinstate in the step function
-        a, y, s = self.state
-        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(
-                y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
+    def _arrived_at_final_state(self):  # TODO confirm this is correct
+        a = self.state[:, 0]
+        y = self.state[:, 1]
+        s = self.state[:, 2]
+
+        if torch.all(torch.abs(a - self.green_fp[:, 0]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(y - self.green_fp[:, 1]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(s - self.green_fp[:, 2]).view(self.num_agents, 1) < self.final_radius):
             return True
-        elif np.abs(a - self.brown_fp[0]) < self.final_radius and np.abs(
-                y - self.brown_fp[1]) < self.final_radius and np.abs(s - self.brown_fp[2]) < self.final_radius:
+        elif torch.all(torch.abs(a - self.brown_fp[:, 0]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(y - self.brown_fp[:, 1]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(s - self.brown_fp[:, 2]).view(self.num_agents, 1) < self.final_radius):
             return True
         else:
             return False
 
-    def _good_final_state(self):
-        a, y, s = self.state
-        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(
-                y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
+    def _good_final_state(self):  # TODO implement agent based somehow
+        a = self.state[:, 0]
+        y = self.state[:, 1]
+        s = self.state[:, 2]
+        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
             return True
         else:
             return False
 
-    def which_final_state(self):
-        a, y, s = self.state
-        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(
-                y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
+    def which_final_state(self):  # TODO implement agent based somehow
+        a = self.state[:, 0]
+        y = self.state[:, 1]
+        s = self.state[:, 2]
+        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
             # print("ARRIVED AT GREEN FINAL STATE WITHOUT VIOLATING PB!")
             return Basins.GREEN_FP
-        elif np.abs(a - self.brown_fp[0]) < self.final_radius and np.abs(
-                y - self.brown_fp[1]) < self.final_radius and np.abs(s - self.brown_fp[2]) < self.final_radius:
+        elif np.abs(a - self.brown_fp[0]) < self.final_radius and np.abs(y - self.brown_fp[1]) < self.final_radius and np.abs(s - self.brown_fp[2]) < self.final_radius:
             return Basins.BLACK_FP
         else:
             # return Basins.OUT_PB
@@ -505,13 +510,12 @@ class AYS_Environment(Env):
         #     print(get_linenumber())
         #     sys.exit(1)
 
-        action = None
+        # action = None
         if action is None:  # TODO not sure this best workaround for default action
             action = torch.tensor([0]).repeat(self.num_agents, 1)
 
         selected_rows = self.action_space[action.squeeze(), :]
-        action_matrix = selected_rows#.view(2, 2)
-
+        action_matrix = selected_rows.view(self.num_agents, 2)
 
         mask_1 = action_matrix[:, 0].unsqueeze(1)
         mask_2 = action_matrix[:, 1].unsqueeze(1)
@@ -651,227 +655,9 @@ class AYS_Environment(Env):
         return testpoints
 
 
-"""
-This is the implementation of a partially observable environment. 
-The internal environment is still deterministic, however does not capture the full state information.
-Which state information is provided can be chosen arbitrarily.
-"""
 
 
-class noisy_partially_observable_AYS(AYS_Environment):
-
-    def __init__(self, t0=0, dt=1, reward_type='PB', image_dir='./images/', run_number=0, plot_progress=False,
-                 observables=dict(A=True,
-                                  Y=True,
-                                  S=True
-                                  ),
-                 noise_strength=0.00):
-
-        AYS_Environment.__init__(self, t0, dt, reward_type, image_dir, run_number, plot_progress)
-        self.observables = observables
-        self.obs_array = self._which_measurable_parameters()
-        self.observation_space = np.array(self.state)[self.obs_array]
-
-        self.noise_strength = noise_strength
-
-    def _which_measurable_parameters(self):
-
-        obs_idx_array = []
-        if self.observables['A']:
-            obs_idx_array.append(0)
-        if self.observables['Y']:
-            obs_idx_array.append(1)
-        if self.observables['S']:
-            obs_idx_array.append(2)
-        return obs_idx_array
-
-    def observed_states(self):
-        return self.dimensions[self.obs_array]
-
-    def _add_noise(self, state):
-        noise = np.random.uniform(low=0, high=self.noise_strength, size=(len(state)))
-        noisy_state = state + noise
-        noisy_state[noisy_state > 1.] = 1.
-        return noisy_state
-
-    def step(self, action):
-        """
-        This function performs one simulation step in a RFL algorithm. 
-        It updates the state and returns a reward according to the chosen reward-function.
-        """
-
-        next_t = self.t + self.dt
-        self.state = self._perform_step(action, next_t)
-        self.t = next_t
-        if self._arrived_at_final_state():
-            self.final_state = True
-
-        reward = self.reward_function(action)
-        if not self._inside_planetary_boundaries():
-            self.final_state = True
-            # print("Left planetary boundaries!" + str(self.state))
-            reward = 0
-
-        # Adjust return state to agent
-        part_state = self.state[self.obs_array]
-        # print("True state in Environment: ", self.state)
-        return_state = self._add_noise(part_state)
-
-        return return_state, reward, self.final_state
-
-    """
-    This functions are needed to reset the Environment to specific states
-    """
-
-    def reset(self):
-        self.start_state = self.state = np.array(self.current_state_region_StartPoint())
-
-        self.final_state = False
-        self.t = self.t0
-        return_state = self.state[self.obs_array]
-
-        return return_state
-
-    def reset_for_state(self, state=None):
-        if state == None:
-            self.start_state = self.state = np.array(self.current_state)
-        else:
-            self.start_state = self.state = np.array(state)
-        self.final_state = False
-        self.t = self.t0
-
-        return_state = self.state[self.obs_array]
-        #         print("Reset to state: " , return_state)
-
-        return return_state
 
 
-class noisy_AYS(AYS_Environment):
-    def __init__(self, noise=1e-5, periodic_increase=500, fixed=False, **kwargs):
-        super(noisy_AYS, self).__init__(**kwargs)
-        self.noise = noise
-        self.period = periodic_increase
-        self.counter = 0
 
-        self.fixed = fixed
-        if self.fixed:
-            self.inject_noise()
-            self.print_params()
-
-    def reset(self):
-        """We change the reset such that every episode has ever so slightly different parameters"""
-        self.state = np.array(self.current_state_region_StartPoint())
-        self.final_state = False
-        self.t = self.t0
-        self.counter += 1
-        if not self.fixed:
-            self.inject_noise()
-            if self.counter % self.period == 0:
-                self.noise *= 10
-                print("Noise now:", self.noise)
-
-        return self.state
-
-    def inject_noise(self):
-        """We inject noise into the parameters of the system to add interpretability"""
-
-        self.tau_A = 50 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.tau_S = 50 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.beta = 0.03 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.theta = 8.57e-5 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.sigma = 4e12 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.rho = 2. * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.phi = 4.7e10 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-        self.eps = 147 * np.clip(np.random.normal(1, self.noise), 0.5, 1.5)
-
-        # derived parameters
-        self.sigma_ET = self.sigma * 0.5 ** (1 / self.rho)
-        self.beta_LG = self.beta/2
-
-    def print_params(self):
-        param_list = [self.tau_A, self.tau_S, self.beta, self.theta, self.sigma, self.rho, self.phi, self.eps]
-        return param_list
-
-
-class velocity_AYS(AYS_Environment):
-    def __init__(self, **kwargs):
-        super(velocity_AYS, self).__init__(**kwargs)
-        self.velocity = np.zeros(3)
-
-    def reset(self):
-        """We change the reset such that every episode has ever so slightly different parameters"""
-        self.state = np.array(self.current_state_region_StartPoint())
-        self.velocity = np.zeros(3)
-        self.final_state = False
-        self.t = self.t0
-        velocity_state = self.get_velocity_state(0)
-        return velocity_state
-
-    def reset_for_state(self, state=None):
-        if state is None:
-            self.start_state = self.state = np.array(self.current_state)
-            self.velocity = np.zeros(3)
-            self.final_state = False
-            self.t = self.t0
-            state = self.get_velocity_state(0)
-        else:
-            self.start_state = self.state = state = np.array(state)
-        self.final_state = False
-        self.t = self.t0
-        return state
-
-    def step(self, action: int) -> np.array:
-        """
-        This function performs one simulation step in a RFL algorithm.
-        It updates the state and returns a reward according to the chosen reward-function.
-        """
-
-        next_t = self.t + self.dt
-        self.state = self._perform_step(action, next_t)
-        self.t = next_t
-        if self._arrived_at_final_state():
-            self.final_state = True
-
-        reward = self.reward_function(action)
-        if not self._inside_planetary_boundaries():
-            self.final_state = True
-
-        if self.final_state and self.reward_type=="PB":
-            reward += self.calculate_expected_final_reward()
-
-        velocity_state = self.get_velocity_state(action)
-        return velocity_state, reward, self.final_state, None
-
-    def get_velocity_state(self, action):
-        A, Y, S = self.state
-
-        sigma = [4e12, 4e12, 2.83e12, 2.83e12]
-        beta = [0.03, 0.015, 0.03, 0.015]
-        gamma = 1/(1+(S/sigma[action])**2)
-        U = Y/self.eps
-        R = (1-gamma)*U
-        E = (U-R)/self.phi
-
-        dA = E - A/self.tau_A
-        dY = beta[action]*Y - self.theta*A
-        dS = R - S/self.tau_S
-
-        self.velocity += np.array([dA, dY, dS])
-        return np.hstack((self.state, self.velocity))
-
-
-class Noisy_Markov(velocity_AYS, noisy_AYS):
-    def __init__(self, **kwargs):
-        super(velocity_AYS, self).__init__(**kwargs)
-        super(Noisy_Markov, self).__init__(**kwargs)
-
-    def reset(self):
-        """We change the reset such that every episode has ever so slightly different parameters"""
-        self.state = np.array(self.current_state_region_StartPoint())
-        self.velocity = np.zeros(3)
-        self.final_state = False
-        self.t = self.t0
-        self.inject_noise()
-        velocity_state = self.get_velocity_state(0)
-        return velocity_state
 
