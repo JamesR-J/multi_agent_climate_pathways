@@ -160,7 +160,7 @@ class AYS_Environment(Env):
                                            self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
         self.S_LIMIT = torch.tensor([0]).repeat(self.num_agents, 1)
         # self.PB = np.array([self.A_PB, self.Y_SF, 0])
-        self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT))
+        self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT), dim=1)
 
         # print("Init AYS Environment!",
         #       "\nReward Type: " + reward_type,
@@ -181,15 +181,13 @@ class AYS_Environment(Env):
         if self._arrived_at_final_state():  # TODO currently is only when both agents get to a FP is this correct or do we only need one or something? or maybe individually cancel the ones that make it to a fp like end their ep early
             self.final_state = True
 
-        # reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
+        reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
         # if not self._inside_planetary_boundaries():
         #     self.final_state = True
 
         # if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
         #     reward += self.calculate_expected_final_reward()
-
-        reward = 0  # TODO remove this and reinstate the above
 
         return self.state, reward, self.final_state, None
 
@@ -203,29 +201,6 @@ class AYS_Environment(Env):
         parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
 
         traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, self.state.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
-
-        # ys_matrix = self.state[:, 1:]
-        # ys_inv_matrix = 1 - ys_matrix
-        # ys_inv_rho_matrix = ys_inv_matrix.clone()
-        # ys_inv_rho_matrix[:, 1] = ys_inv_rho_matrix[:, 1] ** parameter_matrix[:, 3]
-        # Y_matrix = (self.X_MID[1] * ys_matrix[:, 0] / ys_inv_matrix[:, 0]).view(2, 1)
-        # K_matrix = (ys_inv_rho_matrix[:, 1] / (ys_inv_rho_matrix[:, 1] + (self.X_MID[2] * ys_matrix[:, 1] / parameter_matrix[:, 4]) ** parameter_matrix[:, 3])).view(2, 1)
-        # E_matrix = K_matrix / (parameter_matrix[:, 2] * parameter_matrix[:, 1]).view(2, 1) * Y_matrix
-        # E_tot = torch.sum(E_matrix).repeat(self.num_agents, 1)
-        #
-        # parameter_matrix = torch.cat((parameter_matrix, E_tot), dim=1)
-        #
-        # listy = []
-        # for ind, row in enumerate(parameter_matrix):
-        #     traj_one_step = odeint(ays.AYS_rescaled_rhs_marl, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
-        #     # traj_one_step = odeint(ays._AYS_rhs, self.state[ind], [self.t, next_t], args=tuple(row.tolist()), mxstep=50000)
-        #     # print(traj_one_step)
-        #     # sys.exit()
-        #     listy.append(traj_one_step[1])
-        #
-        # print(torch.tensor(np.array(listy)))
-        # sys.exit()
-        # return torch.tensor(np.array(listy))
 
         return torch.tensor(traj_one_step[1]).view(-1, 3)
 
@@ -331,9 +306,9 @@ class AYS_Environment(Env):
 
         def reward_distance_PB(action=0):
             if self._inside_planetary_boundaries():
-                reward = np.linalg.norm(self.state - self.PB)
+                reward = torch.norm(self.state-self.PB, dim=1).view(self.num_agents, 1)
             else:
-                reward = 0.
+                reward = torch.tensor([0]).repeat(self.num_agents, 1)
             return reward
 
         if choice_of_reward == 'final_state':
@@ -397,7 +372,7 @@ class AYS_Environment(Env):
 
         if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(s < self.S_LIMIT):
             is_inside = False
-            print("Outside PB!")
+            # print("Outside PB!")
         return is_inside
 
     def _arrived_at_final_state(self):  # TODO confirm this is correct
@@ -513,6 +488,9 @@ class AYS_Environment(Env):
         # action = None
         if action is None:  # TODO not sure this best workaround for default action
             action = torch.tensor([0]).repeat(self.num_agents, 1)
+
+        if type(action) == int:
+            action = torch.tensor([action]).view(self.num_agents, 1)
 
         selected_rows = self.action_space[action.squeeze(), :]
         action_matrix = selected_rows.view(self.num_agents, 2)

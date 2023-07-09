@@ -46,7 +46,8 @@ class Simple_Learn(Learn):
 
 if __name__ == "__main__":
     experiment = Markov_Learn(wandb_save=False, reward_type="PB", verbose=True)
-    experiment.set_agent("DuelDDQN")
+    # experiment.set_agent("DuelDDQN")
+    experiment.set_agent("DQN")
     experiment.learning_loop_offline(128, 2**13, per_is=True)
 
 
