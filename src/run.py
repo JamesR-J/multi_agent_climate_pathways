@@ -19,8 +19,16 @@ from MARL_agent import MARL_agent
 
 
 if __name__ == "__main__":
-    marl_agent = MARL_agent()
+    # TODO add argparse here and stuff ya know
+    # animation = False
+    animation = True
+    # wandb_save = False
+    wandb_save = True
+    num_agents = 2
+    marl_agent = MARL_agent(num_agents=num_agents, animation=animation, wandb_save=wandb_save)
+
     marl_agent.training_run()
+    # marl_agent.env.test_reward_functions()
 
 
     # animation = False

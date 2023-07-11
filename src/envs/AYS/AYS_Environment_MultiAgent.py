@@ -17,6 +17,7 @@ from . import ays_model as ays
 
 # from . import ays_general
 from .Basins import Basins
+# from Basins import Basins
 from gym import Env
 
 import mpl_toolkits.mplot3d as plt3d
@@ -82,7 +83,7 @@ class AYS_Environment(Env):
     """
     dimensions = np.array(['A', 'Y', 'S'])
     management_options = ['default', 'LG', 'ET', 'LG+ET']
-    action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])  # TODO 0/1 or true/false ?
+    action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
     action_space_number = np.arange(len(action_space))
     # AYS example from Kittel et al. 2017:
     tau_A = 50  # carbon decay - single val
@@ -105,7 +106,7 @@ class AYS_Environment(Env):
 
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
-    def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
+    def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB_new', max_steps=600, image_dir='./images/', run_number=0,
                  plot_progress=False, num_agents=2, **kwargs):
         self.management_cost = 0.5
         self.image_dir = image_dir
@@ -127,11 +128,12 @@ class AYS_Environment(Env):
         self.phi = torch.tensor([self.phi]).repeat(self.num_agents, 1)
 
         # The grid defines the number of cells, hence we have 8x8 possible states
-        self.final_state = False
-        self.reward = [0] * self.num_agents
+        self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
+        self.reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
-        self.reward_type = reward_type  # TODO editing rewards gonna be difficult with multi agents somehow
-        self.reward_function = self.get_reward_function(reward_type)
+        # self.reward_type = reward_type
+        self.reward_type = [reward_type] * self.num_agents
+        # self.reward_function = self.get_reward_function(reward_type)
 
         timeStart = 0
         intSteps = 10  # integration Steps
@@ -156,10 +158,8 @@ class AYS_Environment(Env):
         This values define the planetary boundaries of the AYS model
         """
         self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(self.num_agents, 1)  # Planetary boundary: 0.5897
-        self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"],
-                                           self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
-        self.S_LIMIT = torch.tensor([0]).repeat(self.num_agents, 1)
-        # self.PB = np.array([self.A_PB, self.Y_SF, 0])
+        self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636  # TODO almost keep a global AYS with boundaries but then also individual agent ones
+        self.S_LIMIT = torch.tensor([0.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT), dim=1)
 
         # print("Init AYS Environment!",
@@ -173,29 +173,33 @@ class AYS_Environment(Env):
         """
 
         next_t = self.t + self.dt
+
         self.state = self._perform_step(action, next_t)
 
-        assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
+        if not self.final_state.bool().any():
+            assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
 
         self.t = next_t
-        if self._arrived_at_final_state():  # TODO currently is only when both agents get to a FP is this correct or do we only need one or something? or maybe individually cancel the ones that make it to a fp like end their ep early
-            self.final_state = True
 
-        reward = self.reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
+        self.get_reward_function()  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
-        # if not self._inside_planetary_boundaries():
-        #     self.final_state = True
+        for agent in range(self.num_agents):
+            if self._arrived_at_final_state(agent):
+                self.final_state[agent] = True
+            # if not self._inside_planetary_boundaries(agent):
+            #     self.final_state[agent] = True
+            if self.final_state[agent] and (self.reward_type == "PB" or self.reward_type == "policy_cost"):  # TODO shold this include the new PB_ext or PB_new
+                self.reward[agent] += self.calculate_expected_final_reward(agent)
+            if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
+                self.get_reward_function()
 
-        # if self.final_state and (self.reward_type == "PB" or self.reward_type == "policy_cost"):
-        #     reward += self.calculate_expected_final_reward()
+        # print(self.reward)
 
-        return self.state, reward, self.final_state, None
+        return self.state, self.reward, self.final_state, None
 
     def _perform_step(self, action, next_t):
-        # if type(action) == "np.array":
+
         parameter_matrix = self._get_parameters(action)
-        # else:
-        #     parameter_list = [action]
 
         parameter_vector = parameter_matrix.flatten()
         parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
@@ -206,148 +210,166 @@ class AYS_Environment(Env):
 
     def reset(self):
         # self.state=np.array(self.random_StartPoint())
-        self.state = np.array(self.current_state_region_StartPoint())
+        self.state = self.current_state_region_StartPoint()
         # self.state=np.array(self.current_state)
-        self.final_state = False
+        self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.t = self.t0
         return self.state
 
-    def reset_for_state(self, state=None):
+    def reset_for_state(self, state=None):  # TODO check this
         if state is None:
-            self.start_state = self.state = np.array(self.current_state)
+            self.start_state = self.state = self.current_state
         else:
-            self.start_state = self.state = np.array(state)
-        self.final_state = False
+            self.start_state = self.state = state
+        self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.t = self.t0
         return self.state
 
-    def get_reward_function(self, choice_of_reward):
-        """
-        This function returns one function as a function pointer according to the reward type we chose 
-        for this simulation.
-        """
-
-        def reward_final_state(action=0):
+    def get_reward_function(self):
+        def reward_final_state(agent, action=0):
             """
             Reward in the final  green fixpoint_good 1. , else 0.
             """
-            if self._good_final_state():
-                reward = 1.
+            if self._good_final_state(agent):
+                self.reward[agent] = 1.0
             else:
-                reward = -0.00000000000001
-            return reward
+                self.reward[agent] = -0.00000000000001
 
-        def reward_rel_share(action=0):
+        def reward_rel_share(agent, action=0):
             """
             We want to:
             - maximize the knowledge stock of renewables S 
             - minimize the excess atmospheric carbon stock A 
             - maximize the economic output Y!
             """
-            a, y, s = self.state
-            if self._inside_planetary_boundaries():
-                reward = 1.
+            a, y, s = self.state[agent]
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = 1.0
             else:
-                reward = 0.
-            reward *= s
+                self.reward[agent] = 0.0
 
-            return reward
+            self.reward[agent] *= s
 
-        def reward_desirable_region(action=0):
-            a, y, s = self.state
+        def reward_desirable_region(agent, action=0):
+            a, y, s = self.state[agent]
             desirable_share_renewable = 0.3
-            reward = 0.
+            self.reward[agent] = 0.0
             if s >= desirable_share_renewable:
-                reward = 1.
-            return reward
+                self.reward[agent] = 1.
 
-        def reward_survive(action=0):
-            if self._inside_planetary_boundaries():
-                reward = 1.
+        def reward_survive(agent, action=0):
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = 1.0
             else:
-                reward = -0.0000000000000001
-            return reward
+                self.reward[agent] = -0.0000000000000001
 
-        def reward_survive_cost(action=0):
+        def reward_survive_cost(agent, action=0):
             cost_managment = 0.03
-            if self._inside_planetary_boundaries():
-                reward = 1.
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = 1.0
                 if self.management_options[action] != 'default':
-                    reward -= cost_managment
+                    self.reward[agent] -= cost_managment
 
             else:
-                reward = -0.0000000000000001
+                self.reward[agent] = -0.0000000000000001
 
-            return reward
-
-        def policy_cost(action=0):
+        def policy_cost(agent, action=0):  # TODO check this if works
             """@Theo Wolf, we add a cost to using management options """
-            if self._inside_planetary_boundaries():
-                reward = np.linalg.norm(self.state - self.PB)
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = torch.norm(self.state[agent] - self.PB[agent])
             else:
-                reward = 0.
+                self.reward[agent] = 0.0  # TODO make a version with the -100 for hitting planetary boundary
             if self.management_options[action] != 'default':
                 #reward -= self.management_cost  # cost of using management
-                reward *= self.management_cost
+                self.reward[agent] *= self.management_cost
                 if self.management_options[action] == 'LG+ET':
                     # reward -= self.management_cost  # we add more cost for using both actions
-                    reward *= self.management_cost
-            return reward
+                    self.reward[agent] *= self.management_cost
 
-        def simple(action=0):
+        def simple(agent, action=0):
             """@Theo Wolf, much simpler scheme that aims for what we actually want: go green"""
-            if self._inside_planetary_boundaries():
-                reward = 0
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = 0
             else:
-                reward = -1
-            if self._good_final_state():
-                reward = 1
-            return reward
+                self.reward[agent] = -1
 
-        def reward_distance_PB(action=0):
-            if self._inside_planetary_boundaries():
-                reward = torch.norm(self.state-self.PB, dim=1).view(self.num_agents, 1)
+        def reward_distance_PB(agent, action=0):
+            self.reward[agent] = 0.0
+
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
             else:
-                reward = torch.tensor([0]).repeat(self.num_agents, 1)
-            return reward
+                self.reward[agent] = 0.0
 
-        if choice_of_reward == 'final_state':
-            return reward_final_state
-        elif choice_of_reward == 'ren_knowledge':
-            return reward_rel_share
-        elif choice_of_reward == 'desirable_region':
-            return reward_desirable_region
-        elif choice_of_reward == 'PB':
-            return reward_distance_PB
-        elif choice_of_reward == 'survive':
-            return reward_survive
-        elif choice_of_reward == 'survive_cost':
-            return reward_survive_cost
-        elif choice_of_reward == "policy_cost":
-            return policy_cost
-        elif choice_of_reward == "simple":
-            return simple
-        elif choice_of_reward == None:
-            print("ERROR! You have to choose a reward function!\n",
-                  "Available Reward functions for this environment are: PB, rel_share, survive, desirable_region!")
-            exit(1)
-        else:
-            print("ERROR! The reward function you chose is not available! " + choice_of_reward)
-            print_debug_info()
-            sys.exit(1)
+        def reward_distance_PB_new(agent, action=0):
+            self.reward[agent] = 0.0
 
-    def calculate_expected_final_reward(self, ):
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
+            else:
+                # print(self._which_PB(agent))
+                if self.state[agent, 0] >= self.A_PB[agent]:   # TODO implemented bad reward for hitting PB is that good idea idk
+                    self.reward[agent] += -100
+                if self.state[agent, 1] <= self.Y_SF[agent]:
+                    self.reward[agent] += -100
+
+        def reward_distance_PB_extended(agent, action=0):  # TODO check this reward func
+            self.reward[agent] = 0.0
+
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = torch.norm(self.state[agent] - self.PB[agent])
+            else:
+                self.reward[agent] = 0.0
+
+            if self.final_state[agent]:
+                if self._good_final_state(agent):
+                    if self.which_final_state(agent) == 2:  # green_fp  # TODO change this to the basins.a_pb thingo
+                        self.reward[agent] = 1000
+                    elif self.which_final_state(agent) == 1:  # brown/black_fp
+                        self.reward[agent] = -1000
+
+
+        for agent in range(self.num_agents):
+            if self.reward_type[agent] == 'final_state':
+                reward_final_state(agent)
+            elif self.reward_type[agent] == 'ren_knowledge':
+                reward_rel_share(agent)
+            elif self.reward_type[agent] == 'desirable_region':
+                reward_desirable_region(agent)
+            elif self.reward_type[agent] == 'PB':
+                reward_distance_PB(agent)
+            elif self.reward_type[agent] == 'PB_new':
+                reward_distance_PB_new(agent)
+            elif self.reward_type[agent] == 'PB_ext':
+                reward_distance_PB_extended(agent)
+            elif self.reward_type[agent] == 'survive':
+                reward_survive(agent)
+            elif self.reward_type[agent] == 'survive_cost':
+                reward_survive_cost(agent)
+            elif self.reward_type[agent] == "policy_cost":
+                policy_cost(agent)
+            elif self.reward_type[agent] == "simple":
+                simple(agent)
+            elif self.reward_type[agent] == None:
+                print("ERROR! You have to choose a reward function!\n",
+                      "Available Reward functions for this environment are: PB, rel_share, survive, desirable_region!")
+                exit(1)
+            else:
+                print("ERROR! The reward function you chose is not available! " + self.reward_type[agent])
+                print_debug_info()
+                sys.exit(1)
+
+    def calculate_expected_final_reward(self, agent):
         """
         Get the reward in the last state, expecting from now on always default.
         This is important since we break up simulation at final state, but we do not want the agent to 
         find trajectories that are close (!) to final state and stay there, since this would
         result in a higher total reward.
         """
-        reward_final_state = self.reward_function()
         remaining_steps = self.max_steps - self.t
         discounted_future_reward = 0.
         for i in range(remaining_steps):
-            discounted_future_reward += self.gamma ** i * reward_final_state
+            discounted_future_reward += self.gamma ** i * self.reward[agent]
         return discounted_future_reward
 
     def _compactification(self, x, x_mid):
@@ -364,7 +386,18 @@ class AYS_Environment(Env):
             return np.infty
         return x_mid * y / (1 - y)
 
-    def _inside_planetary_boundaries(self):  # TODO confirm this is correct
+    def _inside_planetary_boundaries(self, agent):  # TODO confirm this is correct
+        a = self.state[agent, 0]
+        y = self.state[agent, 1]
+        s = self.state[agent, 2]
+        is_inside = True
+
+        if a > self.A_PB[agent] or y < self.Y_SF[agent] or s < self.S_LIMIT[agent]:
+            is_inside = False
+            # print("Outside PB!")
+        return is_inside
+
+    def _inside_planetary_boundaries_all(self):  # TODO confirm this is correct
         a = self.state[:, 0]
         y = self.state[:, 1]
         s = self.state[:, 2]
@@ -375,47 +408,53 @@ class AYS_Environment(Env):
             # print("Outside PB!")
         return is_inside
 
-    def _arrived_at_final_state(self):  # TODO confirm this is correct
-        a = self.state[:, 0]
-        y = self.state[:, 1]
-        s = self.state[:, 2]
+    def _arrived_at_final_state(self, agent):  # TODO confirm this is correct
+        a = self.state[agent, 0]
+        y = self.state[agent, 1]
+        s = self.state[agent, 2]
 
-        if torch.all(torch.abs(a - self.green_fp[:, 0]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(y - self.green_fp[:, 1]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(s - self.green_fp[:, 2]).view(self.num_agents, 1) < self.final_radius):
+        if torch.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] \
+                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+                and torch.abs(s - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
-        elif torch.all(torch.abs(a - self.brown_fp[:, 0]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(y - self.brown_fp[:, 1]).view(self.num_agents, 1) < self.final_radius) and torch.all(torch.abs(s - self.brown_fp[:, 2]).view(self.num_agents, 1) < self.final_radius):
-            return True
-        else:
-            return False
-
-    def _good_final_state(self):  # TODO implement agent based somehow
-        a = self.state[:, 0]
-        y = self.state[:, 1]
-        s = self.state[:, 2]
-        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
+        elif torch.abs(a - self.brown_fp[agent, 0]) < self.final_radius[agent]\
+                and torch.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent]\
+                and torch.abs(s - self.brown_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
             return False
 
-    def which_final_state(self):  # TODO implement agent based somehow
-        a = self.state[:, 0]
-        y = self.state[:, 1]
-        s = self.state[:, 2]
-        if np.abs(a - self.green_fp[0]) < self.final_radius and np.abs(y - self.green_fp[1]) < self.final_radius and np.abs(s - self.green_fp[2]) < self.final_radius:
+    def _good_final_state(self, agent):  # TODO confirm this is correct
+        a = self.state[agent, 0]
+        y = self.state[agent, 1]
+        s = self.state[agent, 2]
+        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent]\
+                and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+                and np.abs(s - self.green_fp[agent, 2]) < self.final_radius[agent]:
+            return True
+        else:
+            return False
+
+    def which_final_state(self, agent):  # TODO confirm this is correct
+        a = self.state[agent, 0]
+        y = self.state[agent, 1]
+        s = self.state[agent, 2]
+        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] and np.abs(s - self.green_fp[agent, 2]) < self.final_radius[agent]:
             # print("ARRIVED AT GREEN FINAL STATE WITHOUT VIOLATING PB!")
             return Basins.GREEN_FP
-        elif np.abs(a - self.brown_fp[0]) < self.final_radius and np.abs(y - self.brown_fp[1]) < self.final_radius and np.abs(s - self.brown_fp[2]) < self.final_radius:
+        elif np.abs(a - self.brown_fp[agent,  0]) < self.final_radius[agent] and np.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent] and np.abs(s - self.brown_fp[agent, 2]) < self.final_radius[agent]:
             return Basins.BLACK_FP
         else:
             # return Basins.OUT_PB
-            return self._which_PB()
+            return self._which_PB(agent)
 
-    def _which_PB(self, ):
+    def _which_PB(self, agent):  # TODO confirm this is correct
         """ To check which PB has been violated"""
-        if self.state[0] >= self.A_PB:
+        if self.state[agent, 0] >= self.A_PB[agent]:
             return Basins.A_PB
-        elif self.state[1] <= self.Y_SF:
+        elif self.state[agent, 1] <= self.Y_SF[agent]:
             return Basins.Y_SF
-        elif self.state[2] <= 0:
+        elif self.state[agent, 2] <= 0:
             return Basins.S_PB
         else:
             return Basins.OUT_OF_TIME
@@ -428,21 +467,18 @@ class AYS_Environment(Env):
 
     def random_StartPoint(self):
 
-        self.state = (0, 0, 0)
-        while not self._inside_planetary_boundaries():
-            a = np.random.uniform()
-            y = np.random.uniform()
-            s = np.random.uniform()
-            self.state = (a, y, s)
-        # print("Start: " + str(self.state))
-        return (a, y, s)
+        self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
+        while not self._inside_planetary_boundaries_all():
+            self.state = torch.tensor(np.random.uniform(size=(self.current_state.size(0), 2)))
+
+        return self.state
 
     def current_state_region_StartPoint(self):
 
         self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
         limit_start = 0.05
 
-        while not self._inside_planetary_boundaries():
+        while not self._inside_planetary_boundaries_all():
 
             adjustment = torch.tensor(
                 np.random.uniform(low=-limit_start, high=limit_start, size=(self.current_state.size(0), 2)))
@@ -451,6 +487,8 @@ class AYS_Environment(Env):
 
             const_val = self.state[0, 0]
             self.state[:, 0] = const_val
+
+            # print(self.state)
 
             assert torch.allclose(self.state[:, 0], const_val), "First column values are not equal."
 
@@ -485,12 +523,11 @@ class AYS_Environment(Env):
         #     print(get_linenumber())
         #     sys.exit(1)
 
-        # action = None
-        if action is None:  # TODO not sure this best workaround for default action
+        if action is None:
             action = torch.tensor([0]).repeat(self.num_agents, 1)
 
-        if type(action) == int:
-            action = torch.tensor([action]).view(self.num_agents, 1)
+        # if type(action) == int:
+        #     action = torch.tensor([action]).view(self.num_agents, 1)
 
         selected_rows = self.action_space[action.squeeze(), :]
         action_matrix = selected_rows.view(self.num_agents, 2)
@@ -631,6 +668,19 @@ class AYS_Environment(Env):
             [0.04143141196994614, 0.9467759116676885, 0.9972458138530155],
         ]
         return testpoints
+
+    def test_reward_functions(self):
+        print(self.reward_type)
+        print(self.state)
+        self.state[0, 0] = 0.5899
+        self.state[0, 1] = 0.362
+        print(self.state)
+        print(self.reward)
+        self.get_reward_function()
+        print(self.reward)
+        sys.exit()
+
+
 
 
 
