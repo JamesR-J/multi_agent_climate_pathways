@@ -23,7 +23,7 @@ print(DEVICE)
 
 class MARL_agent:
     def __init__(self, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
-                 max_episodes=1000, max_steps=500, max_frames=1e5,
+                 max_episodes=5000, max_steps=500, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False):
 
@@ -144,8 +144,7 @@ class MARL_agent:
             for i in range(self.max_steps):
 
                 action_n = torch.tensor([self.agent[ind].get_action(state_n[ind]) for ind in range(self.num_agents)])
-                # print(action_n)
-                # sys.exit()
+                action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
                 next_state, reward, done, _ = self.env.step(action_n)
@@ -161,8 +160,8 @@ class MARL_agent:
                             wandb.log({label: loss}) if self.wandb_save else None
                         if done[agent]:
                             self.early_finish[agent] = True
-                    else:
-                        next_state[agent] = state_n[agent].clone()
+                    # else:  # TODO allows another agent to carry on running even if one has reached final state
+                    #     next_state[agent] = state_n[agent].clone()
 
                 state_n = next_state.clone()
                 self.data['frame_idx'] += 1

@@ -212,7 +212,7 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     Y_matrix = (W_mid * ays_matrix[:, 1] / ays_inv_matrix[:, 1]).view(num_agents, 1)
     K_matrix = (ays_inv_s_rho_matrix[:, 2] / (ays_inv_s_rho_matrix[:, 2] + (S_mid * ays_matrix[:, 2] / args[:, 4]) ** args[:, 3])).view(num_agents, 1)
     E_matrix = K_matrix / (args[:, 2] * args[:, 1]).view(num_agents, 1) * Y_matrix
-    E_tot = torch.sum(E_matrix).repeat(num_agents, 1)
+    E_tot = torch.sum(E_matrix).repeat(num_agents, 1) / num_agents  # TODO this divide by num_agents is an awful fix but it currently works lol
 
     adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)  # TODO done the same here need to check if okay
     ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix)

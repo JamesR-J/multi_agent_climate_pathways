@@ -106,7 +106,7 @@ class AYS_Environment(Env):
 
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
-    def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB_new', max_steps=600, image_dir='./images/', run_number=0,
+    def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
                  plot_progress=False, num_agents=2, **kwargs):
         self.management_cost = 0.5
         self.image_dir = image_dir
