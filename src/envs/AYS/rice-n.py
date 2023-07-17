@@ -1,4 +1,8 @@
 import torch
+import numpy as np
+
+
+_SMALL_NUM = 1e-0
 
 
 # RICE dynamics

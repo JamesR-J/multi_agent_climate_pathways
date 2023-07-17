@@ -144,7 +144,7 @@ class MARL_agent:
             for i in range(self.max_steps):
 
                 action_n = torch.tensor([self.agent[ind].get_action(state_n[ind]) for ind in range(self.num_agents)])
-                action_n = torch.tensor([0 for _ in range(self.num_agents)])
+                # action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
                 next_state, reward, done, _ = self.env.step(action_n)
