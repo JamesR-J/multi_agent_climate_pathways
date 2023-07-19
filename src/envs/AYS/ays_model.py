@@ -199,10 +199,10 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     """
     num_agents = int(args[-1])
 
-    ays = ays.reshape((-1, 3))
+    ays = ays.reshape((-1, 4))
     args = np.array(args)[:-1].reshape((-1, 8))
 
-    ays_matrix = torch.tensor(ays)
+    ays_matrix = torch.tensor(ays[:, 0:3])
     args = torch.tensor(args)
     ays_inv_matrix = 1 - ays_matrix
     ays_inv_s_rho_matrix = ays_inv_matrix.clone()
@@ -218,37 +218,7 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix)
     sdot = (1 - K_matrix) * (ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2]).view(num_agents, 1) * Y_matrix / (args[:, 1] * S_mid).view(num_agents, 1) - (ays_matrix[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]).view(num_agents, 1)
 
-    final_matrix = torch.cat((adot, ydot, sdot), dim=1)
-
-    # print(ays)
-    # print(args)
-
-    # def calc_single_agent(ays, params):
-    #     a, y, s = ays
-    #     a_inv = 1 - a
-    #     y_inv = 1 - y
-    #     s_inv = 1 - s
-    #     s_inv_rho = s_inv ** params[3]
-    #     K = s_inv_rho / (s_inv_rho + (S_mid * s / params[4]) ** params[3])
-    #
-    #     Y = W_mid * y / y_inv
-    #     A = A_mid * a / a_inv
-    #
-    #     E = K / (params[2] * params[1]) * Y
-    #     print(E)
-    #
-    #     adot = (E - A / tau_A) * (a_inv * a_inv / A_mid)
-    #     ydot = y * y_inv * (params[0] - params[7] * A)
-    #     sdot = (1 - K) * s_inv * s_inv * Y / (params[1] * S_mid) - s * s_inv / params[6]
-    #
-    #     return E, ydot, sdot
-    #
-    # listy = []
-    #
-    # for agent in range(num_agents):
-    #     listy.append(calc_single_agent(ays[agent], args[agent]))
-    #
-    # print(listy)
+    final_matrix = torch.cat((adot, ydot, sdot, E_matrix), dim=1)
 
     return final_matrix.flatten()
 

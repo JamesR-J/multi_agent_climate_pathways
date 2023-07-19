@@ -22,14 +22,17 @@ print(DEVICE)
 
 
 class MARL_agent:
-    def __init__(self, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
+    def __init__(self, model, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
                  max_episodes=5000, max_steps=500, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
-                 save_locally=False, animation=False):
+                 save_locally=False, animation=False, test_actions=False):
 
         self.num_agents = num_agents
 
-        self.env = AYS_Environment(num_agents=self.num_agents)
+        self.model = model
+
+        if self.model == "ays":
+            self.env = AYS_Environment(num_agents=self.num_agents)
         self.state_dim = len(self.env.observation_space[0])
         self.action_dim = len(self.env.action_space)
         self.gamma = gamma
@@ -73,6 +76,8 @@ class MARL_agent:
         self.agent_str = "DQN"
 
         self.agent = [DQN(self.state_dim, self.action_dim) for _ in range(self.num_agents)]
+
+        self.test_actions = test_actions
 
     def append_data(self, episode_reward):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
@@ -144,7 +149,8 @@ class MARL_agent:
             for i in range(self.max_steps):
 
                 action_n = torch.tensor([self.agent[ind].get_action(state_n[ind]) for ind in range(self.num_agents)])
-                # action_n = torch.tensor([0 for _ in range(self.num_agents)])
+                if self.test_actions:
+                    action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
                 next_state, reward, done, _ = self.env.step(action_n)
@@ -154,7 +160,7 @@ class MARL_agent:
                         episode_reward[agent] += reward[agent]
                         memory[agent].push(state_n[agent], action_n[agent], reward[agent], next_state[agent], done[agent])
                         if len(memory[agent]) > self.batch_size:
-                            sample = memory[agent].sample(self.batch_size)  # (5,128,xxx)
+                            sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
                             loss, _ = self.agent[agent].update(sample)
                             label = "loss_agent_" + str(agent)
                             wandb.log({label: loss}) if self.wandb_save else None
@@ -168,9 +174,11 @@ class MARL_agent:
 
                 if self.animation:
                     for j in range(self.num_agents):
-                        a_values[j].append(state_n[j][0])
+                        # a_values[j].append(state_n[j][0])
+                        a_values[j].append(self.env.emissions[j])  # emissions
                         y_values[j].append(state_n[j][1])
-                        s_values[j].append(state_n[j][2])
+                        # s_values[j].append(state_n[j][2])
+                        s_values[j].append(state_n[j][0])
 
                     for agent in range(self.num_agents):
                         if self.early_finish[agent]:

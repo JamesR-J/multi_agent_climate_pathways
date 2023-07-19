@@ -153,6 +153,7 @@ class AYS_Environment(Env):
         self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
         self.state = self.start_state = self.current_state
         self.observation_space = self.state
+        self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
         """
         This values define the planetary boundaries of the AYS model
@@ -174,7 +175,9 @@ class AYS_Environment(Env):
 
         next_t = self.t + self.dt
 
-        self.state = self._perform_step(action, next_t)
+        result = self._perform_step(action, next_t)
+        self.state = result[:, 0:3]
+        self.emissions = result[:, 3]
 
         if not self.final_state.bool().any():
             assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
@@ -204,9 +207,11 @@ class AYS_Environment(Env):
         parameter_vector = parameter_matrix.flatten()
         parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
 
-        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, self.state.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
+        ode_input = torch.cat((self.state, torch.zeros((self.num_agents, 1))), dim=1)
 
-        return torch.tensor(traj_one_step[1]).view(-1, 3)
+        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ode_input.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
+
+        return torch.tensor(traj_one_step[1]).view(-1, 4)
 
     def reset(self):
         # self.state=np.array(self.random_StartPoint())

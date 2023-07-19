@@ -67,7 +67,8 @@ plt.rc('legend', fontsize=MEDIUM_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 
-current_state = [240, 7e13, 5e11]
+# current_state = [240, 7e13, 5e11]
+current_state = [0, 7e13, 240]
 
 
 # a small hack to make all the parameters available as global variables
@@ -102,9 +103,11 @@ def create_figure(Azimut=170, Elevation=25, label=None, colors=None, ax=None, ti
     
     S_scale = 1e9
     Y_scale = 1e12
-    ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
+    # ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
+    ax3d.set_xlabel("\n\nemissions inni", )
     ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]"%Y_scale, )
-    ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
+    # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
+    ax3d.set_zlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
 
     # Add boundaries to plot
     if plot_boundary:
@@ -123,7 +126,7 @@ def create_figure(Azimut=170, Elevation=25, label=None, colors=None, ax=None, ti
         #ax3d.scatter(*zip([0.5,0.5,0.5]), lw=1, color=shelter_color, label='Shelter')
     else:
         for i in range(len(label)):
-            ax3d.scatter(*zip([0.5,0.5,0.5]), lw=1, color=colors[i], label=label[i])
+            ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=1, color=colors[i], label=label[i])
 
     # For Startpoint
     # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=4, color='black')
@@ -300,24 +303,24 @@ def make_3d_ticks(ax3d, boundaries = None,transformed_formatters=False,S_scale =
     inv_transf = ft.partial(inv_compactification, x_mid=current_state[0])
     
     # A- ticks
-    if boundaries[0] is None:
-        start, stop = 0, np.infty
-        ax3d.set_xlim(0,1)
-    else:
-        start, stop = inv_transf(boundaries[0])
-        ax3d.set_xlim(*boundaries[0])
-    formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
-    if transformed_formatters:
-        new_formatters = []
-        for el, loc in zip(formatters, locators):
-            if el:
-                new_formatters.append("{:4.2f}".format(loc))
-            else:
-                new_formatters.append(el)
-        formatters = new_formatters
-    #print(locators, formatters)
-    ax3d.w_xaxis.set_major_locator(ticker.FixedLocator(locators))
-    ax3d.w_xaxis.set_major_formatter(ticker.FixedFormatter(formatters))
+    # if boundaries[0] is None:
+    #     start, stop = 0, np.infty
+    #     ax3d.set_xlim(0,1)
+    # else:
+    #     start, stop = inv_transf(boundaries[0])
+    #     ax3d.set_xlim(*boundaries[0])
+    # formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
+    # if transformed_formatters:
+    #     new_formatters = []
+    #     for el, loc in zip(formatters, locators):
+    #         if el:
+    #             new_formatters.append("{:4.2f}".format(loc))
+    #         else:
+    #             new_formatters.append(el)
+    #     formatters = new_formatters
+    # #print(locators, formatters)
+    # ax3d.w_xaxis.set_major_locator(ticker.FixedLocator(locators))
+    # ax3d.w_xaxis.set_major_formatter(ticker.FixedFormatter(formatters))
     
     # Y - ticks
     transf = ft.partial(compactification, x_mid=current_state[1])
@@ -354,7 +357,7 @@ def make_3d_ticks(ax3d, boundaries = None,transformed_formatters=False,S_scale =
         start, stop = inv_transf(boundaries[2])
         ax3d.set_zlim(*boundaries[2])
 
-    formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, scale=S_scale, start=start, stop=stop, num=num_s)
+    formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_s)
     if transformed_formatters:
         new_formatters = []
         for el, loc in zip(formatters, locators):
