@@ -12,6 +12,7 @@ from learn import utils
 import wandb
 from rl_algos import DQN
 from learn import agents as ag
+from envs.AYS.ricen import RiceN
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -33,6 +34,8 @@ class MARL_agent:
 
         if self.model == "ays":
             self.env = AYS_Environment(num_agents=self.num_agents)
+        elif self.model == "rice-n":
+            self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps)
         self.state_dim = len(self.env.observation_space[0])
         self.action_dim = len(self.env.action_space)
         self.gamma = gamma

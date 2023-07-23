@@ -12,14 +12,14 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--animation', default=False)
-    parser.add_argument('--animation', default=True)
+    parser.add_argument('--animation', default=False)
+    # parser.add_argument('--animation', default=True)
     parser.add_argument('--wandb_save', default=False)
     # parser.add_argument('--wandb_save', default=True)
-    parser.add_argument('--test_actions', default=False)
-    # parser.add_argument('--test_actions', default=True)
-    parser.add_argument('--model', type=str, default="ays")
-    # parser.add_argument('--model', type=str, default="rice-n")
+    # parser.add_argument('--test_actions', default=False)
+    parser.add_argument('--test_actions', default=True)
+    # parser.add_argument('--model', type=str, default="ays")
+    parser.add_argument('--model', type=str, default="rice-n")
     parser.add_argument('--num_agents', type=int, default=2)
 
     arguments = parser.parse_args()

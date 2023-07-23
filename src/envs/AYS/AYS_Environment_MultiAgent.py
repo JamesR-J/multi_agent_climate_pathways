@@ -233,7 +233,7 @@ class AYS_Environment(Env):
     def get_reward_function(self):
         def reward_final_state(agent, action=0):
             """
-            Reward in the final  green fixpoint_good 1. , else 0.
+            Reward in the final  green fixpoint_good 1., else 0.
             """
             if self._good_final_state(agent):
                 self.reward[agent] = 1.0
