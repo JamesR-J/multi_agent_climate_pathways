@@ -336,7 +336,7 @@ class RiceN(Env):
         #         agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
         #         self.get_reward_function()
 
-        print(self.state)
+        # print(self.state)
 
         return self.state, self.reward, self.final_state, None
 
@@ -406,6 +406,12 @@ class RiceN(Env):
                               self.t,
                               )
 
+        self.set_global_state("savings_all_regions", [0.0, 0.0], self.t)
+        self.set_global_state("mitigation_rate_all_regions", [0.0, 0.0], self.t)
+        self.set_global_state("max_export_limit_all_regions", [0.0, 0.0], self.t)
+        self.set_global_state("future_tariffs", [[0.0, 0.0], [0.0, 0.0]], self.t)
+        self.set_global_state("desired_imports", [[0.0, 0.0], [0.0, 0.0]], self.t)
+
         # Constants
         constants = self.all_constants
 
@@ -423,8 +429,8 @@ class RiceN(Env):
 
         self.set_global_state("global_exogenous_emissions", global_exogenous_emissions, self.t)
         self.set_global_state("global_land_emissions", global_land_emissions, self.t)
-        desired_imports = self.get_global_state("desired_imports")
-        scaled_imports = self.get_global_state("scaled_imports")
+        # desired_imports = self.get_global_state("desired_imports")
+        # scaled_imports = self.get_global_state("scaled_imports")
 
         for agent in range(self.num_agents):
             # Actions
@@ -437,8 +443,8 @@ class RiceN(Env):
                                                       region_id=agent)
             capital = self.get_global_state("capital_all_regions", timestep=self.t - 1, region_id=agent)
             labor = self.get_global_state("labor_all_regions", timestep=self.t - 1, region_id=agent)
-            gov_balance_prev = self.get_global_state("current_balance_all_regions", timestep=self.t - 1,
-                                                     region_id=agent)
+            # gov_balance_prev = self.get_global_state("current_balance_all_regions", timestep=self.t - 1,
+            #                                          region_id=agent)
 
             # constants
             const = constants[agent]
@@ -452,103 +458,103 @@ class RiceN(Env):
             production = self.get_production(production_factor, capital, labor, const["xgamma"])
 
             gross_output = self.get_gross_output(damages, abatement_cost, production)
-            gov_balance_prev = gov_balance_prev * (1 + self.balance_interest_rate)
+            # gov_balance_prev = gov_balance_prev * (1 + self.balance_interest_rate)
             investment = self.get_investment(savings, gross_output)
 
-            for j in range(self.num_agents):
-                scaled_imports[agent][j] = (desired_imports[agent][j] * gross_output)
-            # Import bid to self is reset to zero
-            scaled_imports[agent][agent] = 0
+            # for j in range(self.num_agents):
+            #     scaled_imports[agent][j] = (desired_imports[agent][j] * gross_output)
+            # # Import bid to self is reset to zero
+            # scaled_imports[agent][agent] = 0
+            #
+            # total_scaled_imports = np.sum(scaled_imports[agent])
+            # if total_scaled_imports > gross_output:
+            #     for j in range(self.num_agents):
+            #         scaled_imports[agent][j] = (scaled_imports[agent][j] / total_scaled_imports * gross_output)
 
-            total_scaled_imports = np.sum(scaled_imports[agent])
-            if total_scaled_imports > gross_output:
-                for j in range(self.num_agents):
-                    scaled_imports[agent][j] = (scaled_imports[agent][j] / total_scaled_imports * gross_output)
-
-            # Scale imports based on gov balance
-            init_capital_multiplier = 10.0
-            debt_ratio = gov_balance_prev / init_capital_multiplier * const["xK_0"]
-            debt_ratio = min(0.0, debt_ratio)
-            debt_ratio = max(-1.0, debt_ratio)
-            debt_ratio = np.array(debt_ratio).astype(self.float_dtype)
-            scaled_imports[agent] *= 1 + debt_ratio
+            # # Scale imports based on gov balance
+            # init_capital_multiplier = 10.0
+            # debt_ratio = gov_balance_prev / init_capital_multiplier * const["xK_0"]
+            # debt_ratio = min(0.0, debt_ratio)
+            # debt_ratio = max(-1.0, debt_ratio)
+            # debt_ratio = np.array(debt_ratio).astype(self.float_dtype)
+            # scaled_imports[agent] *= 1 + debt_ratio
 
             self.set_global_state("mitigation_cost_all_regions", mitigation_cost, self.t, region_id=agent)
             self.set_global_state("damages_all_regions", damages, self.t, region_id=agent)
             self.set_global_state("abatement_cost_all_regions", abatement_cost, self.t, region_id=agent)
             self.set_global_state("production_all_regions", production, self.t, region_id=agent)
             self.set_global_state("gross_output_all_regions", gross_output, self.t, region_id=agent)
-            self.set_global_state("current_balance_all_regions", gov_balance_prev, self.t, region_id=agent)
+            # self.set_global_state("current_balance_all_regions", gov_balance_prev, self.t, region_id=agent)
             self.set_global_state("investment_all_regions", investment, self.t, region_id=agent)
 
-        for agent in range(self.num_agents):
-            x_max = self.get_global_state("max_export_limit_all_regions", region_id=agent)
-            gross_output = self.get_global_state("gross_output_all_regions", region_id=agent)
-            investment = self.get_global_state("investment_all_regions", region_id=agent)
+        # for agent in range(self.num_agents):
+        #     x_max = self.get_global_state("max_export_limit_all_regions", region_id=agent)
+        #     gross_output = self.get_global_state("gross_output_all_regions", region_id=agent)
+        #     investment = self.get_global_state("investment_all_regions", region_id=agent)
+        #
+        #     # scale desired imports according to max exports
+        #     max_potential_exports = self.get_max_potential_exports(x_max, gross_output, investment)
+        #     total_desired_exports = np.sum(scaled_imports[:, agent])
+        #
+        #     if total_desired_exports > max_potential_exports:
+        #         for j in range(self.num_agents):
+        #             scaled_imports[j][agent] = (
+        #                     scaled_imports[j][agent] / total_desired_exports * max_potential_exports)
+        #
+        # self.set_global_state("scaled_imports", scaled_imports, self.t)
 
-            # scale desired imports according to max exports
-            max_potential_exports = self.get_max_potential_exports(x_max, gross_output, investment)
-            total_desired_exports = np.sum(scaled_imports[:, agent])
+        # # countries with negative gross output cannot import
+        # prev_tariffs = self.get_global_state("future_tariffs", timestep=self.t - 1)
+        # tariffed_imports = self.get_global_state("tariffed_imports")
+        # scaled_imports = self.get_global_state("scaled_imports")
 
-            if total_desired_exports > max_potential_exports:
-                for j in range(self.num_agents):
-                    scaled_imports[j][agent] = (
-                            scaled_imports[j][agent] / total_desired_exports * max_potential_exports)
+        # for agent in range(self.num_agents):
+        #     # constants
+        #     const = constants[agent]
+        #
+        #     # get variables from global state
+        #     savings = self.get_global_state("savings_all_regions", region_id=agent)
+        #     gross_output = self.get_global_state("gross_output_all_regions", region_id=agent)
+        #     investment = self.get_investment(savings, gross_output)
+        #     labor = self.get_global_state("labor_all_regions", timestep=self.t - 1, region_id=agent)
+        #
+        #     # calculate tariffed imports, tariff revenue and budget balance
+        #     for j in range(self.num_agents):
+        #         tariffed_imports[agent, j] = scaled_imports[agent, j] * (1 - prev_tariffs[agent, j])
+        #     tariff_revenue = np.sum(scaled_imports[agent, :] * prev_tariffs[agent, :])
+        #
+        #     # Aggregate consumption from domestic and foreign goods
+        #     # domestic consumption
+        #     c_dom = self.get_consumption(gross_output, investment, exports=scaled_imports[:, agent])
+        #
+        #     consumption = self.get_armington_agg(c_dom=c_dom,
+        #                                          c_for=tariffed_imports[agent, :],  # np.array
+        #                                          sub_rate=self.sub_rate,  # in (0,1)  np.array
+        #                                          dom_pref=self.dom_pref,  # in [0,1]  np.array
+        #                                          for_pref=self.for_pref,  # np.array, sums to (1 - dom_pref)
+        #                                          )
+        #
+        #     utility = self.get_utility(labor, consumption, const["xalpha"])
+        #
+        #     social_welfare = self.get_social_welfare(utility, const["xrho"], const["xDelta"], self.next_t)
+        #
+        #     self.set_global_state("tariff_revenue", tariff_revenue, self.t, region_id=agent)
+        #     self.set_global_state("consumption_all_regions", consumption, self.t, region_id=agent)
+        #     self.set_global_state("utility_all_regions", utility, self.t, region_id=agent)
+        #     self.set_global_state("social_welfare_all_regions", social_welfare, self.t, region_id=agent)
+        #     self.set_global_state("reward_all_regions", utility, self.t, region_id=agent)
 
-        self.set_global_state("scaled_imports", scaled_imports, self.t)
-
-        # countries with negative gross output cannot import
-        prev_tariffs = self.get_global_state("future_tariffs", timestep=self.t - 1)
-        tariffed_imports = self.get_global_state("tariffed_imports")
-        scaled_imports = self.get_global_state("scaled_imports")
-
-        for agent in range(self.num_agents):
-            # constants
-            const = constants[agent]
-
-            # get variables from global state
-            savings = self.get_global_state("savings_all_regions", region_id=agent)
-            gross_output = self.get_global_state("gross_output_all_regions", region_id=agent)
-            investment = self.get_investment(savings, gross_output)
-            labor = self.get_global_state("labor_all_regions", timestep=self.t - 1, region_id=agent)
-
-            # calculate tariffed imports, tariff revenue and budget balance
-            for j in range(self.num_agents):
-                tariffed_imports[agent, j] = scaled_imports[agent, j] * (1 - prev_tariffs[agent, j])
-            tariff_revenue = np.sum(scaled_imports[agent, :] * prev_tariffs[agent, :])
-
-            # Aggregate consumption from domestic and foreign goods
-            # domestic consumption
-            c_dom = self.get_consumption(gross_output, investment, exports=scaled_imports[:, agent])
-
-            consumption = self.get_armington_agg(c_dom=c_dom,
-                                                 c_for=tariffed_imports[agent, :],  # np.array
-                                                 sub_rate=self.sub_rate,  # in (0,1)  np.array
-                                                 dom_pref=self.dom_pref,  # in [0,1]  np.array
-                                                 for_pref=self.for_pref,  # np.array, sums to (1 - dom_pref)
-                                                 )
-
-            utility = self.get_utility(labor, consumption, const["xalpha"])
-
-            social_welfare = self.get_social_welfare(utility, const["xrho"], const["xDelta"], self.next_t)
-
-            self.set_global_state("tariff_revenue", tariff_revenue, self.t, region_id=agent)
-            self.set_global_state("consumption_all_regions", consumption, self.t, region_id=agent)
-            self.set_global_state("utility_all_regions", utility, self.t, region_id=agent)
-            self.set_global_state("social_welfare_all_regions", social_welfare, self.t, region_id=agent)
-            self.set_global_state("reward_all_regions", utility, self.t, region_id=agent)
-
-        # Update gov balance
-        for agent in range(self.num_agents):
-            const = constants[agent]
-            gov_balance_prev = self.get_global_state("current_balance_all_regions", region_id=agent)
-            scaled_imports = self.get_global_state("scaled_imports")
-
-            gov_balance = gov_balance_prev + const["xDelta"] * (
-                    np.sum(scaled_imports[:, agent]) - np.sum(scaled_imports[agent, :]))
-            self.set_global_state("current_balance_all_regions", gov_balance, self.t, region_id=agent)
-
-        self.set_global_state("tariffed_imports", tariffed_imports, self.t)
+        # # Update gov balance
+        # for agent in range(self.num_agents):
+        #     const = constants[agent]
+        #     gov_balance_prev = self.get_global_state("current_balance_all_regions", region_id=agent)
+        #     scaled_imports = self.get_global_state("scaled_imports")
+        #
+        #     gov_balance = gov_balance_prev + const["xDelta"] * (
+        #             np.sum(scaled_imports[:, agent]) - np.sum(scaled_imports[agent, :]))
+        #     self.set_global_state("current_balance_all_regions", gov_balance, self.t, region_id=agent)
+        #
+        # self.set_global_state("tariffed_imports", tariffed_imports, self.t)
 
         # Update temperature
         m_at = self.get_global_state("global_carbon_mass", timestep=self.t - 1)[0]
