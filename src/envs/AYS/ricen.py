@@ -49,16 +49,6 @@ class RiceN(Env):
         self.dice_constant = params["_DICE_CONSTANT"]
         self.all_constants = self.concatenate_world_and_regional_params(self.dice_constant, self.rice_constant)
 
-        # self.Mass = torch.tensor([0.0, 0.0, 0.0])
-        # self.Temp = torch.tensor([0.0, 0.0])
-        # self.Lpop = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.Atech = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.Kcapital = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.Sigma = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.D = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.Theta = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        # self.Emission = torch.tensor([0.0]).repeat(self.num_agents, 1)
-
         self.balance_interest_rate = 0.1
 
         # Parameters for Armington aggregation
@@ -89,19 +79,14 @@ class RiceN(Env):
 
         self.sim_time_step = np.linspace(timeStart, dt, intSteps)
 
-        self.green_fp = torch.tensor([0, 1, 1]).repeat(self.num_agents, 1)
-        self.brown_fp = torch.tensor([0.6, 0.4, 0]).repeat(self.num_agents, 1)
-        self.final_radius = torch.tensor([0.05]).repeat(self.num_agents, 1)
-
-        self.X_MID = [240, 7e13, 5e11]
-
         # Definitions from outside
-        self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
+        self.current_state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
         self.state = self.start_state = self.current_state
         self.observation_space = self.state
         self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
         self.action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
+        self.temp_pb = torch.tensor([7.0]).repeat(self.num_agents, 1)  # TODO need to find a better num than this with backup paper or something
 
         self.global_state = {}
 
@@ -174,6 +159,9 @@ class RiceN(Env):
         self.t = 0
         self.next_t = 0
         self.current_year = self.all_constants[0]["xt_0"]
+
+        self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        self.state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
 
         constants = self.all_constants
 
@@ -307,8 +295,13 @@ class RiceN(Env):
 
         return self.state
 
-    def step(self, action: int):
+    def step(self, action):
         self.t += 1
+
+        for key in self.global_state:
+            if key != "reward_all_regions":
+                self.global_state[key]["value"][self.t] = self.global_state[key]["value"][self.t - 1].copy()
+
         self.set_global_state("timestep", self.t, self.t, dtype=self.int_dtype)
         # self.next_t = self.t + self.dt  # TODO check that making next_t a self function actually updates
 
@@ -320,20 +313,19 @@ class RiceN(Env):
         if not self.final_state.bool().any():
             assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
 
-        # self.t = self.next_t  # TODO check this still works too ya know
+        # self.t = self.next_t  # TODO not sure this is needed
 
         # self.get_reward_function()  # TODO instate rewards here
 
-        # for agent in range(self.num_agents):
+        for agent in range(self.num_agents):
         #     if self._arrived_at_final_state(agent):
         #         self.final_state[agent] = True
-        #     # if not self._inside_planetary_boundaries(agent):
-        #     #     self.final_state[agent] = True
+            if not self._inside_planetary_boundaries(agent):
+                self.final_state[agent] = True
         #     if self.final_state[agent] and (
         #             self.reward_type == "PB" or self.reward_type == "policy_cost"):  # TODO shold this include the new PB_ext or PB_new
         #         self.reward[agent] += self.calculate_expected_final_reward(agent)
-        #     if self.final_state[
-        #         agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
+        #     if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
         #         self.get_reward_function()
 
         # print(self.state)
@@ -367,8 +359,7 @@ class RiceN(Env):
         self.set_global_state("savings_all_regions",
                               [
                                   action[agent][savings_action_index] / self.num_discrete_action_levels for
-                                  agent
-                                  in range(self.num_agents)
+                                  agent in range(self.num_agents)
                               ],
                               self.t)
         self.set_global_state("mitigation_rate_all_regions",
@@ -379,16 +370,13 @@ class RiceN(Env):
                               self.t)
         self.set_global_state("max_export_limit_all_regions",
                               [
-                                  action[agent][export_action_index]
-                                  / self.num_discrete_action_levels
+                                  action[agent][export_action_index] / self.num_discrete_action_levels
                                   for agent in range(self.num_agents)
                               ],
                               self.t)
         self.set_global_state("future_tariffs",
                               [
-                                  action[agent][
-                                  tariffs_action_index: tariffs_action_index + self.num_agents
-                                  ]
+                                  action[agent][tariffs_action_index: tariffs_action_index + self.num_agents]
                                   / self.num_discrete_action_levels
                                   for agent in range(self.num_agents)
                               ],
@@ -396,21 +384,12 @@ class RiceN(Env):
                               )
         self.set_global_state("desired_imports",
                               [
-                                  action[agent][
-                                  desired_imports_action_index: desired_imports_action_index
-                                                                + self.num_agents
-                                  ]
+                                  action[agent][desired_imports_action_index: desired_imports_action_index + self.num_agents]
                                   / self.num_discrete_action_levels
                                   for agent in range(self.num_agents)
                               ],
                               self.t,
                               )
-
-        self.set_global_state("savings_all_regions", [0.0, 0.0], self.t)
-        self.set_global_state("mitigation_rate_all_regions", [0.0, 0.0], self.t)
-        self.set_global_state("max_export_limit_all_regions", [0.0, 0.0], self.t)
-        self.set_global_state("future_tariffs", [[0.0, 0.0], [0.0, 0.0]], self.t)
-        self.set_global_state("desired_imports", [[0.0, 0.0], [0.0, 0.0]], self.t)
 
         # Constants
         constants = self.all_constants
@@ -640,7 +619,7 @@ class RiceN(Env):
         #     for region_id in range(self.num_regions)
         # }
         # # Set current year
-        # self.current_year += self.all_constants[0]["xDelta"]
+        self.current_year += self.all_constants[0]["xDelta"]
         # done = {"__all__": self.current_year == self.end_year}
         # info = {}
         # return obs, rew, done, info
@@ -702,6 +681,19 @@ class RiceN(Env):
         if region_id is None:
             return self.global_state[key]["value"][timestep].copy()
         return self.global_state[key]["value"][timestep, region_id].copy()
+
+    def _inside_planetary_boundaries(self, agent):  # TODO confirm this is correct
+        global_temp_change = self.state[agent, 0]
+        y = self.state[agent, 1]
+        s = self.state[agent, 2]
+        e = self.emissions[agent]
+        is_inside = True
+
+        # if global_temp_change > self.A_PB[agent] or y < self.Y_SF[agent] or e < self.S_LIMIT[agent]:
+        if global_temp_change > self.temp_pb[agent]:
+            is_inside = False
+            # print("Outside PB!")
+        return is_inside
 
     # RICE dynamics
     @staticmethod

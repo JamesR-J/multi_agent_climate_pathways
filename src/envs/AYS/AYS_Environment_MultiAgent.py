@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 
 from matplotlib.font_manager import FontProperties
 from matplotlib.offsetbox import AnchoredText
-from .AYS_3D_figures import create_figure
+from .AYS_3D_figures import create_figure_ays
 from . import AYS_3D_figures as ays_plot
 import os
 
@@ -102,7 +102,7 @@ class AYS_Environment(Env):
 
     phi = 4.7e10
 
-    AYS0 = [240, 7e13, 5e11]
+    # AYS0 = [240, 7e13, 5e11]
 
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
@@ -163,10 +163,6 @@ class AYS_Environment(Env):
         self.S_LIMIT = torch.tensor([0.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT), dim=1)
 
-        # print("Init AYS Environment!",
-        #       "\nReward Type: " + reward_type,
-        #       "\nSustainability Boundaries [A_PB, Y_SF, S_ren]: ", inv_compactification(self.PB, self.X_MID))
-
     def step(self, action: int):
         """
         This function performs one simulation step in an RL algorithm.
@@ -189,8 +185,8 @@ class AYS_Environment(Env):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            # if not self._inside_planetary_boundaries(agent):
-            #     self.final_state[agent] = True
+            if not self._inside_planetary_boundaries(agent):
+                self.final_state[agent] = True
             if self.final_state[agent] and (self.reward_type == "PB" or self.reward_type == "policy_cost"):  # TODO shold this include the new PB_ext or PB_new
                 self.reward[agent] += self.calculate_expected_final_reward(agent)
             if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
@@ -395,9 +391,10 @@ class AYS_Environment(Env):
         a = self.state[agent, 0]
         y = self.state[agent, 1]
         s = self.state[agent, 2]
+        e = self.emissions[agent]
         is_inside = True
 
-        if a > self.A_PB[agent] or y < self.Y_SF[agent] or s < self.S_LIMIT[agent]:
+        if a > self.A_PB[agent] or y < self.Y_SF[agent] or e < self.S_LIMIT[agent]:
             is_inside = False
             # print("Outside PB!")
         return is_inside
@@ -406,9 +403,10 @@ class AYS_Environment(Env):
         a = self.state[:, 0]
         y = self.state[:, 1]
         s = self.state[:, 2]
+        e = self.emissions
         is_inside = True
 
-        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(s < self.S_LIMIT):
+        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(e < self.S_LIMIT):
             is_inside = False
             # print("Outside PB!")
         return is_inside
@@ -429,7 +427,7 @@ class AYS_Environment(Env):
         else:
             return False
 
-    def _good_final_state(self, agent):  # TODO confirm this is correct
+    def _good_final_state(self, agent):  # TODO confirm this is correct and adapt what is good final state ya know
         a = self.state[agent, 0]
         y = self.state[agent, 1]
         s = self.state[agent, 2]
@@ -459,7 +457,7 @@ class AYS_Environment(Env):
             return Basins.A_PB
         elif self.state[agent, 1] <= self.Y_SF[agent]:
             return Basins.Y_SF
-        elif self.state[agent, 2] <= 0:
+        elif self.emissions[agent] <= 0:
             return Basins.S_PB
         else:
             return Basins.OUT_OF_TIME
@@ -553,7 +551,7 @@ class AYS_Environment(Env):
         dt = 1
         sim_time_step = np.linspace(timeStart, self.dt, intSteps)
         if axes is None:
-            fig, ax3d = create_figure()
+            fig, ax3d = create_figure_ays()
         else:
             ax3d = axes
         start_state = learning_progress[0][0]

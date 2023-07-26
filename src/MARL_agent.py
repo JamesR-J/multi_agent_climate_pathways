@@ -5,9 +5,9 @@ import torch.nn as nn
 import random
 import wandb
 from envs.AYS.AYS_Environment_MultiAgent import *
-from envs.AYS.AYS_3D_figures import create_figure
+from envs.AYS.AYS_3D_figures import create_figure_ays, create_figure_ricen
 # from envs.AYS.AYS_Environment import *
-from learn_class import Learn
+# from learn_class import Learn
 from learn import utils
 import wandb
 from rl_algos import DQN
@@ -26,7 +26,7 @@ class MARL_agent:
     def __init__(self, model, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
                  max_episodes=5000, max_steps=500, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
-                 save_locally=False, animation=False, test_actions=False):
+                 save_locally=False, animation=False, test_actions=False, top_down=False):
 
         self.num_agents = num_agents
 
@@ -75,6 +75,7 @@ class MARL_agent:
                      }
 
         self.animation = animation
+        self.top_down = top_down
 
         self.agent_str = "DQN"
 
@@ -112,7 +113,10 @@ class MARL_agent:
 
         if self.animation:
             plt.ion()
-            fig, ax3d = create_figure()
+            if self.model == 'ays':
+                fig, ax3d = create_figure_ays(top_down=self.top_down)
+            if self.model == 'rice-n':
+                fig, ax3d = create_figure_ricen(top_down=self.top_down)
             colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
             plt.show()
 
@@ -193,8 +197,8 @@ class MARL_agent:
 
                     # ax3d.legend([f'Agent {j + 1}' for j in range(experiment.env.num_agents)])
 
-                    if i == 0:
-                        ays_plot.plot_hairy_lines(100, ax3d)
+                    # if i == 0:
+                    #     ays_plot.plot_hairy_lines(100, ax3d)
                     plt.pause(0.001)
 
                 if torch.all(done):
@@ -202,7 +206,10 @@ class MARL_agent:
 
             if self.animation:
                 ax3d.clear()
-                fig, ax3d = create_figure(reset=True, fig3d=fig, ax3d=ax3d)
+                if self.model == 'ays':
+                    fig, ax3d = create_figure_ays(reset=True, fig3d=fig, ax3d=ax3d, top_down=self.top_down)
+                if self.model == 'rice-n':
+                    fig, ax3d = create_figure_ricen(reset=True, fig3d=fig, ax3d=ax3d, top_down=self.top_down)
 
             self.append_data(episode_reward)
 
