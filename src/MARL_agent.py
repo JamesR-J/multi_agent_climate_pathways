@@ -97,17 +97,19 @@ class MARL_agent:
 
         self.data['episodes'] += 1
 
-        final_states = [self.env.which_final_state(agent).name for agent in range(self.num_agents)]
-        self.data['final_point'].append(final_states)
+        if self.model == 'ays':  # TODO redo this for ricen
+            final_states = [self.env.which_final_state(agent).name for agent in range(self.num_agents)]
+            self.data['final_point'].append(final_states)
 
         # we log or print depending on settings
         wandb.log({'episode_reward': episode_reward,
                    "moving_average": self.data['moving_avg_rewards'][-1]}) \
             if self.wandb_save else None
 
-        print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
-              self.env.which_final_state().name) \
-            if self.verbose else None
+        if self.model == 'ays':  # TODO redo this for ricen
+            print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
+                  self.env.which_final_state().name) \
+                if self.verbose else None
 
     def training_run(self):
 
@@ -160,7 +162,7 @@ class MARL_agent:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
-                next_state, reward, done, _ = self.env.step(action_n)
+                next_state, reward, done = self.env.step(action_n)
 
                 for agent in range(self.num_agents):
                     if not self.early_finish[agent]:

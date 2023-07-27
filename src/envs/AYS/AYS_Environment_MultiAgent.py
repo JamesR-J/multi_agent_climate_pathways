@@ -181,6 +181,7 @@ class AYS_Environment(Env):
         self.t = next_t
 
         self.get_reward_function()  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
+        # TODO check the PB still works with all the function changes ya know
 
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
@@ -194,7 +195,7 @@ class AYS_Environment(Env):
 
         # print(self.reward)
 
-        return self.state, self.reward, self.final_state, None
+        return self.state, self.reward, self.final_state
 
     def _perform_step(self, action, next_t):
 
@@ -294,7 +295,7 @@ class AYS_Environment(Env):
             else:
                 self.reward[agent] = -1
 
-        def reward_distance_PB(agent, action=0):
+        def reward_distance_PB(agent, action=0):  # TODO check this is correct idk if it is really lol due to changing s to emissions
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):

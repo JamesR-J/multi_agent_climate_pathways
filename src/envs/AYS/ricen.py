@@ -1,4 +1,5 @@
 import logging
+import time
 
 import torch
 import numpy as np
@@ -55,7 +56,10 @@ class RiceN(Env):
         # TODO : add to yaml
         self.sub_rate = 0.5
         self.dom_pref = 0.5
-        self.for_pref = [0.5 / (self.num_agents - 1)] * self.num_agents
+        if self.num_agents > 1:
+            self.for_pref = [0.5 / (self.num_agents - 1)] * self.num_agents
+        else:
+            self.for_pref = [1.0]  # TODO check this is the right value
 
         # Typecasting
         self.sub_rate = np.array([self.sub_rate]).astype(self.float_dtype)
@@ -85,8 +89,11 @@ class RiceN(Env):
         self.observation_space = self.state
         self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
-        self.action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
-        self.temp_pb = torch.tensor([7.0]).repeat(self.num_agents, 1)  # TODO need to find a better num than this with backup paper or something
+        x, y = torch.meshgrid(torch.arange(10), torch.arange(10), indexing='ij')
+        self.action_space = torch.stack((x.flatten(), y.flatten()),dim=1)  # .unsqueeze(0).expand(self.num_agents, -1, -1)
+
+        self.temp_pb = torch.tensor([7.0]).repeat(self.num_agents, 1)  # TODO need to find a better num with backup paper
+        # self.PB = torch.cat((self.temp_pb, self.Y_SF, self.S_LIMIT), dim=1)
 
         self.global_state = {}
 
@@ -159,9 +166,8 @@ class RiceN(Env):
         self.t = 0
         self.next_t = 0
         self.current_year = self.all_constants[0]["xt_0"]
-
-        self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
-        self.state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        self.reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
 
         constants = self.all_constants
 
@@ -293,7 +299,26 @@ class RiceN(Env):
                 timestep=self.t,
             )
 
+        global_temperature = self.get_global_state("global_temperature", self.t)
+
+        result = torch.tensor([0.0, 0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        result[:, 0] = torch.tensor(global_temperature[0])
+
+        for agent in range(self.num_agents):
+            result[agent, 1] = torch.tensor(self.get_global_state("capital_all_regions", timestep=self.t, region_id=agent))
+            result[agent, 2] = torch.tensor(self.get_global_state("production_factor_all_regions", timestep=self.t, region_id=agent))
+            result[agent, 3] = torch.tensor(self.get_global_state("intensity_all_regions", timestep=self.t, region_id=agent))
+
+        self.state = result[:, 0:3]
+        self.emissions = result[:, 3]
+
         return self.state
+
+    def action_split(self, action_vec):
+        first_digit = action_vec // 10
+        second_digit = action_vec % 10
+
+        return torch.stack((first_digit, second_digit), dim=1)
 
     def step(self, action):
         self.t += 1
@@ -315,11 +340,11 @@ class RiceN(Env):
 
         # self.t = self.next_t  # TODO not sure this is needed
 
-        # self.get_reward_function()  # TODO instate rewards here
+        self.get_reward_function()
 
         for agent in range(self.num_agents):
-        #     if self._arrived_at_final_state(agent):
-        #         self.final_state[agent] = True
+            #     if self._arrived_at_final_state(agent):
+            #         self.final_state[agent] = True
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
         #     if self.final_state[agent] and (
@@ -330,66 +355,60 @@ class RiceN(Env):
 
         # print(self.state)
 
-        return self.state, self.reward, self.final_state, None
+        return self.state, self.reward, self.final_state
 
     def _perform_step(self, action):
-        # TODO figure out what the action does
-
         self.next_t += 1  # TODO dodgy fix until figure the issue
 
         self.set_global_state(key="activity_timestep", value=self.next_t, timestep=self.t, dtype=self.int_dtype)
 
         assert self.t == self.next_t
 
-        action = {0: np.array([1, 5, 6, 4, 0, 2, 3, 8, 9, 8, 9, 1, 2, 1, 2, 0, 7, 3, 2, 8, 6, 1, 0, 6, 2, 7, 5, 6, 6, 8,
-                               5, 5, 3, 6, 3, 2, 1, 3, 3, 8, 9, 2, 3, 0, 1, 8, 4, 0, 5, 1, 4, 8, 9, 2, 8, 5, 0]),
-                  1: np.array([6, 5, 5, 3, 8, 1, 6, 9, 3, 9, 3, 6, 1, 6, 4, 7, 5, 2, 0, 0, 8, 5, 4, 8, 0, 4, 3, 4, 2, 8,
-                               5, 8, 1, 0, 0, 1, 2, 3, 0, 6, 7, 5, 2, 0, 4, 3, 9, 5, 2, 0, 4, 8, 7, 3, 4, 3, 1])}
+        action_n = self.action_split(action)
 
-        assert isinstance(action, dict)
-        assert len(action) == self.num_agents
+        assert len(action_n) == self.num_agents
 
         # add actions to global state
         savings_action_index = 0
         mitigation_rate_action_index = savings_action_index + len(self.savings_action_nvec)
-        export_action_index = mitigation_rate_action_index + len(self.mitigation_rate_action_nvec)
-        tariffs_action_index = export_action_index + len(self.export_action_nvec)
-        desired_imports_action_index = tariffs_action_index + len(self.tariff_actions_nvec)  # TODO figure all these out
+        # export_action_index = mitigation_rate_action_index + len(self.mitigation_rate_action_nvec)
+        # tariffs_action_index = export_action_index + len(self.export_action_nvec)
+        # desired_imports_action_index = tariffs_action_index + len(self.tariff_actions_nvec)
 
         self.set_global_state("savings_all_regions",
                               [
-                                  action[agent][savings_action_index] / self.num_discrete_action_levels for
+                                  action_n[agent][savings_action_index].item() / self.num_discrete_action_levels for
                                   agent in range(self.num_agents)
                               ],
                               self.t)
         self.set_global_state("mitigation_rate_all_regions",
                               [
-                                  action[agent][mitigation_rate_action_index] / self.num_discrete_action_levels
+                                  action_n[agent][mitigation_rate_action_index].item() / self.num_discrete_action_levels
                                   for agent in range(self.num_agents)
                               ],
                               self.t)
-        self.set_global_state("max_export_limit_all_regions",
-                              [
-                                  action[agent][export_action_index] / self.num_discrete_action_levels
-                                  for agent in range(self.num_agents)
-                              ],
-                              self.t)
-        self.set_global_state("future_tariffs",
-                              [
-                                  action[agent][tariffs_action_index: tariffs_action_index + self.num_agents]
-                                  / self.num_discrete_action_levels
-                                  for agent in range(self.num_agents)
-                              ],
-                              self.t,
-                              )
-        self.set_global_state("desired_imports",
-                              [
-                                  action[agent][desired_imports_action_index: desired_imports_action_index + self.num_agents]
-                                  / self.num_discrete_action_levels
-                                  for agent in range(self.num_agents)
-                              ],
-                              self.t,
-                              )
+        # self.set_global_state("max_export_limit_all_regions",
+        #                       [
+        #                           action[agent][export_action_index] / self.num_discrete_action_levels
+        #                           for agent in range(self.num_agents)
+        #                       ],
+        #                       self.t)
+        # self.set_global_state("future_tariffs",
+        #                       [
+        #                           action[agent][tariffs_action_index: tariffs_action_index + self.num_agents]
+        #                           / self.num_discrete_action_levels
+        #                           for agent in range(self.num_agents)
+        #                       ],
+        #                       self.t,
+        #                       )
+        # self.set_global_state("desired_imports",
+        #                       [
+        #                           action[agent][desired_imports_action_index: desired_imports_action_index + self.num_agents]
+        #                           / self.num_discrete_action_levels
+        #                           for agent in range(self.num_agents)
+        #                       ],
+        #                       self.t,
+        #                       )
 
         # Constants
         constants = self.all_constants
@@ -609,7 +628,7 @@ class RiceN(Env):
             result[agent, 2] = updated_production_factor
             result[agent, 3] = updated_intensity
 
-        self.set_global_state("tariffs", self.global_state["future_tariffs"]["value"][self.t], self.t)
+        # self.set_global_state("tariffs", self.global_state["future_tariffs"]["value"][self.t], self.t)
 
         # obs = self.generate_observation()
         # rew = {
@@ -626,7 +645,29 @@ class RiceN(Env):
 
         return result
 
-    def set_global_state(self, key: object = None, value: object = None, timestep: object = None, norm: object = None, region_id: object = None, dtype: object = None) -> object:
+    def get_reward_function(self):
+        def reward_distance_PB(agent, action=0):
+            self.reward[agent] = 0.0
+
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] = torch.norm(self.state[agent][0]-self.temp_pb[agent])
+            else:
+                self.reward[agent] = 0.0
+
+        for agent in range(self.num_agents):
+            if self.reward_type[agent] == 'PB':
+                reward_distance_PB(agent)
+            elif self.reward_type[agent] == None:
+                print("ERROR! You have to choose a reward function!\n",
+                      "Available Reward functions for this environment are: PB, rel_share, survive, desirable_region!")
+                exit(1)
+            else:
+                print("ERROR! The reward function you chose is not available! " + self.reward_type[agent])
+                # print_debug_info()
+                sys.exit(1)
+
+    def set_global_state(self, key: object = None, value: object = None, timestep: object = None, norm: object = None,
+                         region_id: object = None, dtype: object = None) -> object:
         """
         Set a specific slice of the environment global state with a key and value pair.
         The value is set for a specific timestep, and optionally, a specific region_id.
@@ -904,5 +945,5 @@ if __name__ == "__main__":
               #              5, 8, 1, 0, 0, 1, 2, 3, 0, 6, 7, 5, 2, 0, 4, 3, 9, 5, 2, 0, 4, 8, 7, 3, 4, 3, 1]),
               }
     for _ in range(10):
-       ricen.step(action)
+        ricen.step(action)
     print(ricen.global_state)
