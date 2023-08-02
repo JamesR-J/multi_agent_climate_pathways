@@ -11,7 +11,7 @@ import sys
 
 class RiceN(Env):
     def __init__(self, discount=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=2, episode_length=10, **kwargs):
+                 plot_progress=False, num_agents=2, **kwargs):
         self.small_num = 1e-0
 
         self.num_agents = num_agents
@@ -45,7 +45,7 @@ class RiceN(Env):
         self.max_steps = max_steps
         self.gamma = discount
 
-        params, num_regions = self.set_rice_params(os.path.join('./envs/AYS/', "region_yamls/"))
+        params = self.set_rice_params(os.path.join('./envs/', "region_yamls/"))
         self.rice_constant = params["_RICE_CONSTANT"]
         self.dice_constant = params["_DICE_CONSTANT"]
         self.all_constants = self.concatenate_world_and_regional_params(self.dice_constant, self.rice_constant)
@@ -69,10 +69,10 @@ class RiceN(Env):
         # The grid defines the number of cells, hence we have 8x8 possible states
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        self.old_emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
-        # self.reward_type = reward_type
-        self.reward_type = [reward_type] * self.num_agents
-        # self.reward_function = self.get_reward_function(reward_type)
+        self.reward_type = reward_type
+        print("This is the reward type: {}".format(reward_type))
 
         timeStart = 0
         intSteps = 10  # integration Steps
@@ -84,10 +84,10 @@ class RiceN(Env):
         self.sim_time_step = np.linspace(timeStart, dt, intSteps)
 
         # Definitions from outside
-        self.current_state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
-        self.state = self.start_state = self.current_state
-        self.observation_space = self.state
-        self.emissions = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        # self.current_state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        # self.state = self.start_state = self.current_state
+        self.state = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        self.observation_space = torch.tensor([0.0]*(self.num_agents + (7 * self.num_agents) + 13)).repeat(self.num_agents, 1)  # TODO need to confirm this stuff
 
         x, y = torch.meshgrid(torch.arange(10), torch.arange(10), indexing='ij')
         self.action_space = torch.stack((x.flatten(), y.flatten()),dim=1)  # .unsqueeze(0).expand(self.num_agents, -1, -1)
@@ -96,8 +96,6 @@ class RiceN(Env):
         # self.PB = torch.cat((self.temp_pb, self.Y_SF, self.S_LIMIT), dim=1)
 
         self.global_state = {}
-
-        self.episode_length = episode_length  # self.dice_constant["xN"]
 
         # self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT), dim=1)
 
@@ -120,7 +118,7 @@ class RiceN(Env):
                 yaml_files.append(file)
 
         rice_params = []
-        for file in yaml_files:
+        for file in yaml_files[0:self.num_agents]:
             rice_params.append(self.read_yaml_data(os.path.join(yamls_folder, file)))
 
         # Overwrite rice params
@@ -133,7 +131,7 @@ class RiceN(Env):
             for k in param["_RICE_CONSTANT"].keys():
                 dice_params["_RICE_CONSTANT"][k][idx] = param["_RICE_CONSTANT"][k]
 
-        return dice_params, num_regions
+        return dice_params
 
     def concatenate_world_and_regional_params(self, world, regional):
         """
@@ -301,24 +299,132 @@ class RiceN(Env):
 
         global_temperature = self.get_global_state("global_temperature", self.t)
 
-        result = torch.tensor([0.0, 0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
-        result[:, 0] = torch.tensor(global_temperature[0])
+        result = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        result[:, 2] = torch.tensor(global_temperature[0])
 
         for agent in range(self.num_agents):
+            intensity = self.get_global_state("intensity_all_regions", timestep=self.t-1, region_id=agent)
+            mitigation_rate = self.get_global_state("mitigation_rate_all_regions", region_id=agent)
+            production = self.get_global_state("production_all_regions", region_id=agent)
+            land_emissions = self.get_global_state("global_land_emissions")
+
+            result[agent, 0] = torch.tensor(self.get_aux_m(intensity, mitigation_rate, production, land_emissions))
             result[agent, 1] = torch.tensor(self.get_global_state("capital_all_regions", timestep=self.t, region_id=agent))
-            result[agent, 2] = torch.tensor(self.get_global_state("production_factor_all_regions", timestep=self.t, region_id=agent))
-            result[agent, 3] = torch.tensor(self.get_global_state("intensity_all_regions", timestep=self.t, region_id=agent))
 
-        self.state = result[:, 0:3]
-        self.emissions = result[:, 3]
+        self.state = result
+        self.old_emissions = self.state[:, 0]
 
-        return self.state
+        return self.state, self.generate_observation()
 
     def action_split(self, action_vec):
         first_digit = action_vec // 10
         second_digit = action_vec % 10
 
         return torch.stack((first_digit, second_digit), dim=1)
+
+    def generate_observation(self):
+        """
+        Generate observations for each agent by concatenating global, public
+        and private features.
+        The observations are returned as a dictionary keyed by region index.
+        Each dictionary contains the features as well as the action mask.
+        """
+        # Observation array features
+
+        # Global features that are observable by all regions
+        global_features = [
+            "global_temperature",
+            "global_carbon_mass",
+            "global_exogenous_emissions",
+            "global_land_emissions",
+            # "timestep",
+        ]
+
+        # Public features that are observable by all regions
+        public_features = [
+            "capital_all_regions",
+            "capital_depreciation_all_regions",
+            "labor_all_regions",
+            "gross_output_all_regions",
+            "investment_all_regions",
+            # "consumption_all_regions",
+            "savings_all_regions",
+            "mitigation_rate_all_regions",
+            # "max_export_limit_all_regions",
+            # "current_balance_all_regions",
+            # "tariffs",
+        ]
+
+        # Private features that are private to each region.
+        private_features = [
+            "production_factor_all_regions",
+            "intensity_all_regions",
+            "mitigation_cost_all_regions",
+            "damages_all_regions",
+            "abatement_cost_all_regions",
+            "production_all_regions",
+            # "utility_all_regions",
+            # "social_welfare_all_regions",
+            # "reward_all_regions",
+        ]
+
+        shared_features = np.array([])
+        for feature in global_features + public_features:
+            shared_features = np.append(shared_features, self.flatten_array(
+                    self.global_state[feature]["value"][self.t] / self.global_state[feature]["norm"]
+                    ),
+            )
+
+        # Form the feature dictionary, keyed by region_id.
+        features_dict = {}
+        for agent in range(self.num_agents):
+            # Add a region indicator array to the observation
+            region_indicator = np.zeros(self.num_agents, dtype=self.float_dtype)
+            region_indicator[agent] = 1
+
+            all_features = np.append(region_indicator, shared_features)
+
+            for feature in private_features:
+                assert self.global_state[feature]["value"].shape[1] == self.num_agents
+                all_features = np.append(
+                    all_features,
+                    self.flatten_array(
+                        self.global_state[feature]["value"][self.t, agent]
+                        / self.global_state[feature]["norm"]
+                    ),
+                )
+
+            # for feature in bilateral_features:
+            #     assert self.global_state[feature]["value"].shape[1] == self.num_regions
+            #     assert self.global_state[feature]["value"].shape[2] == self.num_regions
+            #     all_features = np.append(
+            #         all_features,
+            #         self.flatten_array(
+            #             self.global_state[feature]["value"][self.timestep, region_id]
+            #             / self.global_state[feature]["norm"]
+            #         ),
+            #     )
+            #     all_features = np.append(
+            #         all_features,
+            #         self.flatten_array(
+            #             self.global_state[feature]["value"][self.timestep, :, region_id]
+            #             / self.global_state[feature]["norm"]
+            #         ),
+            #     )
+
+            features_dict[agent] = all_features
+
+        # Form the observation dictionary keyed by region id.
+        obs_dict = {}
+        for agent in range(self.num_agents):
+            obs_dict[agent] = {
+                "features": features_dict[agent],
+            }
+
+        tensor_list = [torch.tensor(value['features']) for value in obs_dict.values()]
+        obs_tensor = torch.stack(tensor_list)
+
+        return obs_tensor
 
     def step(self, action):
         self.t += 1
@@ -330,13 +436,11 @@ class RiceN(Env):
         self.set_global_state("timestep", self.t, self.t, dtype=self.int_dtype)
         # self.next_t = self.t + self.dt  # TODO check that making next_t a self function actually updates
 
-        result = self._perform_step(action)
-
-        self.state = result[:, 0:3]
-        self.emissions = result[:, 3]
+        self.state = self._perform_step(action)
+        self.observation_space = self.generate_observation()
 
         if not self.final_state.bool().any():
-            assert torch.all(self.state[:, 0] == self.state[0, 0]), "Values in the first column are not all equal"
+            assert torch.all(self.state[:, 2] == self.state[0, 2]), "Values in the first column are not all equal"
 
         # self.t = self.next_t  # TODO not sure this is needed
 
@@ -347,15 +451,16 @@ class RiceN(Env):
             #         self.final_state[agent] = True
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
-        #     if self.final_state[agent] and (
-        #             self.reward_type == "PB" or self.reward_type == "policy_cost"):  # TODO shold this include the new PB_ext or PB_new
-        #         self.reward[agent] += self.calculate_expected_final_reward(agent)
+            if self.final_state[agent] and (self.reward_type[agent] == "PB" or self.reward_type[agent] == "policy_cost"):
+                self.reward[agent] += self.calculate_expected_final_reward(agent)
         #     if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
         #         self.get_reward_function()
 
         # print(self.state)
 
-        return self.state, self.reward, self.final_state
+        self.old_emissions = self.state[:, 0]
+
+        return self.state, self.reward, self.final_state, self.observation_space
 
     def _perform_step(self, action):
         self.next_t += 1  # TODO dodgy fix until figure the issue
@@ -420,7 +525,7 @@ class RiceN(Env):
         t_at = prev_global_temperature[0]
 
         # add emissions to global state
-        global_exogenous_emissions = self.get_exogenous_emissions(const["xf_0"], const["xf_1"], const["xt_f"],
+        global_exogenous_emissions = self.get_exogenous_emissions(const["xf_0"], const["xf_1"], self.max_steps,  # const["xt_f"],
                                                                   self.next_t)
         global_land_emissions = self.get_land_emissions(const["xE_L0"], const["xdelta_EL"], self.next_t,
                                                         self.num_agents)
@@ -587,8 +692,9 @@ class RiceN(Env):
                                                          np.sum(aux_m_all_regions))
         self.set_global_state("global_carbon_mass", global_carbon_mass, self.t)
 
-        result = torch.tensor([0.0, 0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
-        result[:, 0] = global_temperature[0]
+        result = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
+        result[:, 0] = torch.tensor(aux_m_all_regions)
+        result[:, 2] = global_temperature[0]
 
         for agent in range(self.num_agents):
             capital = self.get_global_state("capital_all_regions", timestep=self.t - 1, region_id=agent)
@@ -625,8 +731,6 @@ class RiceN(Env):
             self.set_global_state("intensity_all_regions", updated_intensity, self.t, region_id=agent)
 
             result[agent, 1] = updated_capital
-            result[agent, 2] = updated_production_factor
-            result[agent, 3] = updated_intensity
 
         # self.set_global_state("tariffs", self.global_state["future_tariffs"]["value"][self.t], self.t)
 
@@ -639,9 +743,6 @@ class RiceN(Env):
         # }
         # # Set current year
         self.current_year += self.all_constants[0]["xDelta"]
-        # done = {"__all__": self.current_year == self.end_year}
-        # info = {}
-        # return obs, rew, done, info
 
         return result
 
@@ -650,13 +751,67 @@ class RiceN(Env):
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):
-                self.reward[agent] = torch.norm(self.state[agent][0]-self.temp_pb[agent])
+                self.reward[agent] = torch.norm(self.state[agent, 2] - self.temp_pb[agent])
+            else:
+                self.reward[agent] = -1.0
+
+        def posi_negi_carbon(agent, action=0):
+            reward = 0.0
+            old_carbon = self.get_global_state("global_carbon_mass", timestep=self.t - 1)[0]
+            new_carbon = self.get_global_state("global_carbon_mass", timestep=self.t)[0]
+
+            reward = abs(old_carbon - new_carbon)
+
+            if old_carbon > new_carbon:
+                reward = reward
+            elif old_carbon < new_carbon:
+                reward = -reward
+            elif old_carbon == new_carbon:
+                reward = 0
+            else:
+                print("FAILURE")
+                sys.exit(1)
+
+            self.reward[agent] = torch.tensor(reward)
+
+        def posi_negi_emissions(agent, action=0):
+            reward = 0.0
+            old_emissions = self.old_emissions[agent]
+            new_emissions = self.state[agent, 0]
+
+            reward = abs(old_emissions - new_emissions)
+
+            if old_emissions > new_emissions:
+                reward = reward
+            elif old_emissions < new_emissions:
+                reward = -reward
+            elif old_emissions == new_emissions:
+                reward = 0
+            else:
+                print("FAILURE")
+                sys.exit(1)
+
+            self.reward[agent] = reward
+
+        def PB_and_capital(agent, action=0):
+            self.reward[agent] = 0.0
+
+            self.reward[agent] = self.state[agent, 1] / 100
+
+            if self._inside_planetary_boundaries(agent):
+                self.reward[agent] += torch.norm(self.state[agent][2]-self.temp_pb[agent])  # TODO might confused reward being composite, maybe should add the utility back in but then have to figure out the other actions etc (will explode tho so ideally dont use them)
             else:
                 self.reward[agent] = 0.0
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
                 reward_distance_PB(agent)
+            elif self.reward_type[agent] == 'cap_PB':
+                PB_and_capital(agent)
+            elif self.reward_type[agent] == 'carbon_reduc':
+                posi_negi_carbon(agent)
+            elif self.reward_type[agent] == 'emission_reduc':
+                posi_negi_emissions(agent)
             elif self.reward_type[agent] == None:
                 print("ERROR! You have to choose a reward function!\n",
                       "Available Reward functions for this environment are: PB, rel_share, survive, desirable_region!")
@@ -665,6 +820,22 @@ class RiceN(Env):
                 print("ERROR! The reward function you chose is not available! " + self.reward_type[agent])
                 # print_debug_info()
                 sys.exit(1)
+
+    def calculate_expected_final_reward(self, agent):
+        """
+        Get the reward in the last state, expecting from now on always default.
+        This is important since we break up simulation at final state, but we do not want the agent to
+        find trajectories that are close (!) to final state and stay there, since this would
+        result in a higher total reward.
+        """
+        remaining_steps = self.max_steps - self.t
+        discounted_future_reward = 0.
+        for i in range(remaining_steps):
+            discounted_future_reward += self.gamma ** i * self.reward[agent]  # TODO works well unless agent that turns red comes back into the PB as it gives +ve numbher, but the agent doesnt update so it is fine
+
+        # print("Agent number : {}".format(agent))
+        # print(discounted_future_reward)
+        return discounted_future_reward
 
     def set_global_state(self, key: object = None, value: object = None, timestep: object = None, norm: object = None,
                          region_id: object = None, dtype: object = None) -> object:
@@ -696,14 +867,14 @@ class RiceN(Env):
             if region_id is None:
                 self.global_state[key] = {
                     "value": np.zeros(
-                        (self.episode_length + 1,) + value.shape, dtype=dtype
+                        (self.max_steps + 1,) + value.shape, dtype=dtype
                     ),
                     "norm": norm,
                 }
             else:
                 self.global_state[key] = {
                     "value": np.zeros(
-                        (self.episode_length + 1,) + (self.num_agents,) + value.shape,
+                        (self.max_steps + 1,) + (self.num_agents,) + value.shape,
                         dtype=dtype,
                     ),
                     "norm": norm,
@@ -724,10 +895,9 @@ class RiceN(Env):
         return self.global_state[key]["value"][timestep, region_id].copy()
 
     def _inside_planetary_boundaries(self, agent):  # TODO confirm this is correct
-        global_temp_change = self.state[agent, 0]
+        e = self.state[agent, 0]
         y = self.state[agent, 1]
-        s = self.state[agent, 2]
-        e = self.emissions[agent]
+        global_temp_change = self.state[agent, 2]
         is_inside = True
 
         # if global_temp_change > self.A_PB[agent] or y < self.Y_SF[agent] or e < self.S_LIMIT[agent]:
@@ -735,6 +905,11 @@ class RiceN(Env):
             is_inside = False
             # print("Outside PB!")
         return is_inside
+
+    @staticmethod
+    def flatten_array(array):
+        """Flatten a numpy array"""
+        return np.reshape(array, -1)
 
     # RICE dynamics
     @staticmethod

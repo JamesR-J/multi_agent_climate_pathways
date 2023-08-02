@@ -1,16 +1,11 @@
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import random
-import wandb
-from envs.AYS.AYS_Environment_MultiAgent import *
-# from envs.AYS.AYS_3D_figures import create_figure
-# from envs.AYS.AYS_Environment import *
-# from learn_class import Learn
-# from learn import utils
-# from learn import networks
-# import wandb
-# from learn import agents as ag
+import numpy as np
+
+# from envs.AYS_Environment_MultiAgent import *
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -63,6 +58,9 @@ class DQN:
         self.t += 1
         if np.random.uniform() > self.epsilon(self.t) or testing:
             q_values = self.policy_net(torch.Tensor(state).to(DEVICE)).cpu().numpy()
+            # print(q_values)
+            # print(np.argmax(q_values))
+            # sys.exit()
             return np.argmax(q_values)
         else:
             return np.random.choice(self.action_size)

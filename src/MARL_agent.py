@@ -1,44 +1,43 @@
-import time
-
-import torch
-import torch.nn as nn
 import random
-import wandb
-from envs.AYS.AYS_Environment_MultiAgent import *
-from envs.AYS.AYS_3D_figures import create_figure_ays, create_figure_ricen
-# from envs.AYS.AYS_Environment import *
-# from learn_class import Learn
+import time
+from datetime import datetime
+
+from envs.AYS_Environment_MultiAgent import *
+from envs.graph_functions import create_figure_ays, create_figure_ricen
 from learn import utils
 import wandb
 from rl_algos import DQN
-from learn import agents as ag
-from envs.AYS.ricen import RiceN
+from envs.ricen import RiceN
 
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(DEVICE)
 
 
 class MARL_agent:
-    def __init__(self, model, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
-                 max_episodes=5000, max_steps=500, max_frames=1e5,
+    def __init__(self, model, chkpt_load_path, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
+                 max_episodes=5000, max_steps=1000, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
-                 save_locally=False, animation=False, test_actions=False, top_down=False):
+                 save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
+                 obs_type='all_shared'):
 
         self.num_agents = num_agents
+        self.obs_type = obs_type
 
         self.model = model
 
+        self.reward_type = [reward_type] * self.num_agents
+        self.gamma = gamma
+
         if self.model == "ays":
-            self.env = AYS_Environment(num_agents=self.num_agents)
+            self.env = AYS_Environment(num_agents=self.num_agents, reward_type=self.reward_type, max_steps=max_steps,
+                                       discount=self.gamma, obs_type=self.obs_type)
         elif self.model == "rice-n":
-            self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps)
+            self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
+                             max_steps=max_steps, discount=self.gamma)
         self.state_dim = len(self.env.observation_space[0])
         self.action_dim = len(self.env.action_space)
-        self.gamma = gamma
 
         random.seed(seed)
         np.random.seed(seed)
@@ -82,6 +81,11 @@ class MARL_agent:
         self.agent = [DQN(self.state_dim, self.action_dim) for _ in range(self.num_agents)]
 
         self.test_actions = test_actions
+        self.episode_count = 0
+
+        self.chkpt_load = chkpt_load
+        self.chkpt_load_path = chkpt_load_path
+        self.time = time.time()
 
     def append_data(self, episode_reward):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
@@ -102,9 +106,13 @@ class MARL_agent:
             self.data['final_point'].append(final_states)
 
         # we log or print depending on settings
-        wandb.log({'episode_reward': episode_reward,
-                   "moving_average": self.data['moving_avg_rewards'][-1]}) \
-            if self.wandb_save else None
+        if self.wandb_save:
+            for agent in range(self.num_agents):
+                label_1 = "episode_reward_agent_" + str(agent)
+                label_2 = "moving_avg_rewards_agent_" + str(agent)
+                wandb.log({label_1: episode_reward[agent]})
+                wandb.log({label_2: self.data['moving_avg_rewards'][-1][agent][
+                    0]})  # TODO check moving_avg_rewards as seems both agents have the same - could be the same atm as reward should be the same since it only cares about the shared z axis with PB reward
 
         if self.model == 'ays':  # TODO redo this for ricen
             print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
@@ -124,50 +132,52 @@ class MARL_agent:
 
         self.data['frame_idx'] = self.data['episodes'] = 0
 
-        config = None
         if self.wandb_save:
             # wandb.init(project="ucl_diss", entity="climate_policy_optim", config=config, job_type=str(experiment.agent),group=group_name)
-            wandb.init(project="ucl_diss", config=None)
-
-        # wandb.init(
-        #     project="ucl_diss",
-        #     config={
-        #         "learning_rate": 0.02,
-        #         "architecture": "CNN",
-        #         "dataset": "CIFAR-100",
-        #         "epochs": 10,
-        #     }
-        # )
+            wandb.init(project="ucl_diss", group=self.model,
+                       config={"reward_type": self.reward_type,
+                               "observations": self.obs_type,
+                               })
 
         # memory = utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha,
         #                                    state_dim=self.state_dim) if self.per_is else utils.ReplayBuffer(self.buffer_size)
         memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
+        if self.chkpt_load:
+            checkpoint = torch.load(self.chkpt_load_path)
+            for agent in range(self.num_agents):
+                self.agent[agent].target_net.load_state_dict(checkpoint['agent_' + str(agent) + '_target_state_dict'])
+                self.agent[agent].policy_net.load_state_dict(checkpoint['agent_' + str(agent) + '_policy_state_dict'])
+                self.agent[agent].optimizer.load_state_dict(checkpoint['agent_' + str(agent) + '_optimiser_state_dict'])
+            self.episode_count = checkpoint['episode_count']
+
         for episodes in range(self.max_episodes):
 
             # reset environment to a random state (0.5, 0.5, 0.5) * gaussian noise
-            state_n = self.env.reset()
+            state_n, obs_n = self.env.reset()
             self.early_finish = [False] * self.num_agents
             episode_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
             if self.animation:
-                a_values = [[] for _ in range(self.num_agents)]
+                x_values = [[] for _ in range(self.num_agents)]
                 y_values = [[] for _ in range(self.num_agents)]
-                s_values = [[] for _ in range(self.num_agents)]
+                z_values = [[] for _ in range(self.num_agents)]
 
             for i in range(self.max_steps):
 
-                action_n = torch.tensor([self.agent[ind].get_action(state_n[ind]) for ind in range(self.num_agents)])
+                # print(obs_n)
+
+                action_n = torch.tensor([self.agent[ind].get_action(obs_n[ind]) for ind in range(self.num_agents)])
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
-                next_state, reward, done = self.env.step(action_n)
+                next_state, reward, done, next_obs = self.env.step(action_n)
 
                 for agent in range(self.num_agents):
                     if not self.early_finish[agent]:
                         episode_reward[agent] += reward[agent]
-                        memory[agent].push(state_n[agent], action_n[agent], reward[agent], next_state[agent], done[agent])
+                        memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
                         if len(memory[agent]) > self.batch_size:
                             sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
                             loss, _ = self.agent[agent].update(sample)
@@ -178,32 +188,39 @@ class MARL_agent:
                     # else:  # TODO allows another agent to carry on running even if one has reached final state
                     #     next_state[agent] = state_n[agent].clone()
 
+                obs_n = next_obs.clone()
                 state_n = next_state.clone()
                 self.data['frame_idx'] += 1
 
+                # print(i)
+                # print(time.time() - self.time)
+                # self.time = time.time()
+
                 if self.animation:
-                    for j in range(self.num_agents):
-                        # a_values[j].append(state_n[j][0])
-                        a_values[j].append(self.env.emissions[j])  # emissions
-                        y_values[j].append(state_n[j][1])
-                        # s_values[j].append(state_n[j][2])
-                        s_values[j].append(state_n[j][0])
+                    for line in ax3d.lines:
+                        line.remove()
 
                     for agent in range(self.num_agents):
+                        x_values[agent].append(state_n[agent][0])
+                        y_values[agent].append(state_n[agent][1])
+                        z_values[agent].append(state_n[agent][2])
+
                         if self.early_finish[agent]:
-                            ax3d.plot3D(xs=a_values[agent], ys=y_values[agent], zs=s_values[agent],
-                                        color='r', alpha=0.3, lw=3)
+                            ax3d.plot3D(xs=x_values[agent], ys=y_values[agent], zs=z_values[agent],
+                                        color='r', alpha=0.8, lw=3, label="Agent : {}".format(agent))
                         else:
-                            ax3d.plot3D(xs=a_values[agent], ys=y_values[agent], zs=s_values[agent],
-                                    color=colors[agent], alpha=0.3, lw=3)
+                            ax3d.plot3D(xs=x_values[agent], ys=y_values[agent], zs=z_values[agent],
+                                        color=colors[agent], alpha=0.8, lw=3, label="Agent : {}".format(agent))
 
-                    # ax3d.legend([f'Agent {j + 1}' for j in range(experiment.env.num_agents)])
+                    ax3d.set_title(["Agent {} reward : {:.2f}".format(agent, reward[agent][0]) for agent in
+                                    range(self.num_agents)])
+                    # ax3d.set_title(i)
+                    ax3d.legend()
 
-                    # if i == 0:
-                    #     ays_plot.plot_hairy_lines(100, ax3d)
-                    plt.pause(0.001)
+                    plt.pause(0.00001)
 
-                if torch.all(done):
+                # if torch.all(done):
+                if torch.any(done):  # TODO but means that the early ended agent won't get more reward as doesnt get final count function thing - see if it matters I guess
                     break
 
             if self.animation:
@@ -215,12 +232,32 @@ class MARL_agent:
 
             self.append_data(episode_reward)
 
+        self.episode_count += self.max_episodes
+
+        # add checkpointing here
+        # print()
+        chkpt_save_path = './checkpoints/env=' + str(self.model) + '_reward_type=' + str(self.reward_type) \
+                          + '_obs_type=' + str(self.obs_type) + '_num_agents=' + str(self.num_agents) \
+                          + '_episodes=' + str(self.episode_count)
+        tot_dict = {}
         for agent in range(self.num_agents):
-            success_rate = np.stack(self.data["final_point"])[:, agent].tolist().count("GREEN_FP") / self.data["episodes"]
+            tot_dict['agent_' + str(agent) + '_target_state_dict'] = self.agent[agent].target_net.state_dict()
+            tot_dict['agent_' + str(agent) + '_policy_state_dict'] = self.agent[agent].policy_net.state_dict()
+            tot_dict['agent_' + str(agent) + '_optimiser_state_dict'] = self.agent[agent].optimizer.state_dict()
+        tot_dict['episode_count'] = self.episode_count
+        if not os.path.exists(chkpt_save_path):
+            os.makedirs(chkpt_save_path)
+        torch.save(tot_dict,
+                   chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
+
+        for agent in range(self.num_agents):
+            success_rate = np.stack(self.data["final_point"])[:, agent].tolist().count("GREEN_FP") / self.data[
+                "episodes"]
             print("Agent_" + str(agent) + " Success rate: ", round(success_rate, 3))
 
             if self.wandb_save:
-                wandb.run.summary["Agent_" + str(agent) + "_mean_reward"] = np.mean(np.stack(self.data['rewards'])[:, agent])
+                wandb.run.summary["Agent_" + str(agent) + "_mean_reward"] = np.mean(
+                    np.stack(self.data['rewards'])[:, agent])
                 wandb.run.summary["Agent_" + str(agent) + "_top_reward"] = max(np.stack(self.data['rewards'])[:, agent])
                 wandb.run.summary["Agent_" + str(agent) + "_success_rate"] = success_rate
 
