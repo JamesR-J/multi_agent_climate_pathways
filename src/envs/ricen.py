@@ -93,9 +93,13 @@ class RiceN(Env):
         self.action_space = torch.stack((x.flatten(), y.flatten()),dim=1)  # .unsqueeze(0).expand(self.num_agents, -1, -1)
 
         self.temp_pb = torch.tensor([7.0]).repeat(self.num_agents, 1)  # TODO need to find a better num with backup paper
-        # self.PB = torch.cat((self.temp_pb, self.Y_SF, self.S_LIMIT), dim=1)
+        self.Y_SF = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        self.S_LIMIT = torch.tensor(torch.inf).repeat(self.num_agents, 1)  # TODO this causes scaling issues so not good to use
+        self.PB = torch.cat((self.temp_pb, self.Y_SF, self.S_LIMIT), dim=1)
 
         self.global_state = {}
+
+        self.old_norm = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
         # self.PB = torch.cat((self.A_PB, self.Y_SF, self.S_LIMIT), dim=1)
 
@@ -451,12 +455,13 @@ class RiceN(Env):
             #         self.final_state[agent] = True
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
-            if self.final_state[agent] and (self.reward_type[agent] == "PB" or self.reward_type[agent] == "policy_cost"):
+            if self.final_state[agent]:
                 self.reward[agent] += self.calculate_expected_final_reward(agent)
         #     if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
         #         self.get_reward_function()
 
         # print(self.state)
+        # print(self.reward)
 
         self.old_emissions = self.state[:, 0]
 
@@ -755,19 +760,44 @@ class RiceN(Env):
             else:
                 self.reward[agent] = -1.0
 
+        def posi_negi_PB(agent, action=0):
+            self.reward[agent] = 0.0
+
+            if self._inside_planetary_boundaries(agent):
+                new_norm = torch.norm(self.state[agent, 2] - self.temp_pb[agent])
+                reward = torch.abs(new_norm - self.old_norm) * 10
+                if self.t <= 1:
+                    self.old_norm = new_norm
+
+                if self.old_norm > new_norm:
+                    reward = -reward
+                elif self.old_norm < new_norm:
+                    reward = reward
+                elif self.old_norm == new_norm:
+                    reward = torch.tensor(0.0)
+                else:
+                    print("FAILURE")
+                    sys.exit(1)
+
+                self.reward[agent] = reward
+
+                self.old_norm = new_norm
+            else:
+                self.reward[agent] = -10.0
+
         def posi_negi_carbon(agent, action=0):
-            reward = 0.0
+            reward = 0.0  # TODO maybe make it just a minimise to zero kinda thing
             old_carbon = self.get_global_state("global_carbon_mass", timestep=self.t - 1)[0]
             new_carbon = self.get_global_state("global_carbon_mass", timestep=self.t)[0]
 
-            reward = abs(old_carbon - new_carbon)
+            reward = abs(old_carbon - new_carbon)  # ** 2
 
             if old_carbon > new_carbon:
                 reward = reward
             elif old_carbon < new_carbon:
                 reward = -reward
             elif old_carbon == new_carbon:
-                reward = 0
+                reward = 0.0
             else:
                 print("FAILURE")
                 sys.exit(1)
@@ -786,7 +816,7 @@ class RiceN(Env):
             elif old_emissions < new_emissions:
                 reward = -reward
             elif old_emissions == new_emissions:
-                reward = 0
+                reward = 0.0
             else:
                 print("FAILURE")
                 sys.exit(1)
@@ -796,16 +826,16 @@ class RiceN(Env):
         def PB_and_capital(agent, action=0):
             self.reward[agent] = 0.0
 
-            self.reward[agent] = self.state[agent, 1] / 100
-
             if self._inside_planetary_boundaries(agent):
-                self.reward[agent] += torch.norm(self.state[agent][2]-self.temp_pb[agent])  # TODO might confused reward being composite, maybe should add the utility back in but then have to figure out the other actions etc (will explode tho so ideally dont use them)
+                self.reward[agent] = torch.norm(self.state[agent, :2]-self.PB[agent, :2])  # TODO try this but want to normalise the two values maybe - atm capital way bigger effect than temp, not sure how to normalise it tho
             else:
-                self.reward[agent] = 0.0
+                self.reward[agent] = -10.0
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
                 reward_distance_PB(agent)
+            elif self.reward_type[agent] == 'posi_negi_PB':
+                posi_negi_PB(agent)
             elif self.reward_type[agent] == 'cap_PB':
                 PB_and_capital(agent)
             elif self.reward_type[agent] == 'carbon_reduc':

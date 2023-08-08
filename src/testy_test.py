@@ -23,3 +23,4 @@ exogenous_emissions = 10.0  # 0.5
 
 result = np.dot(b_t, f_2x * np.log(m_at / m_at_1750) / np.log(2) + exogenous_emissions)  # this must be negative somehow
 print(result)
+

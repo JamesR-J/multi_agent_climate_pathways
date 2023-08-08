@@ -130,7 +130,7 @@ class AYS_Environment(Env):
         self.final_radius = torch.tensor([0.05]).repeat(self.num_agents, 1)
         self.color_list = ays_plot.color_list
 
-        self.X_MID = [240, 7e13, 5e11]
+        self.X_MID = [240, 7e13, 501.5198]
 
         # Definitions from outside
         # self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
@@ -139,16 +139,19 @@ class AYS_Environment(Env):
         self.obs_type = obs_type
         print("This is the observation type: {}".format(self.obs_type))
         if self.obs_type == 'agent_only':
-            self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0]).repeat(self.num_agents, 1)
+            self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
         elif self.obs_type == 'all_shared':
             self.observation_space = torch.cat((torch.eye(self.num_agents), torch.tensor([0.5]).repeat(self.num_agents, 1), torch.tensor([0.5, 0.5, 10.0] * self.num_agents).repeat(self.num_agents, 1)), dim=1)
 
         """
         This values define the planetary boundaries of the AYS model
         """
+        # print(ays.boundary_parameters["A_PB"])
+        # print(self.X_MID[0])
+        # sys.exit()
         self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(self.num_agents, 1)  # Planetary boundary: 0.5897
         self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636
-        self.E_LIMIT = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        self.E_LIMIT = torch.tensor([1.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.E_LIMIT, self.Y_SF, self.A_PB), dim=1)
 
     def step(self, action: int):
@@ -187,6 +190,7 @@ class AYS_Environment(Env):
             #     self.get_reward_function()
 
         # print(self.reward)
+        # print(self.state)
 
         return self.state, self.reward, self.final_state, self.observation_space
 
@@ -225,9 +229,9 @@ class AYS_Environment(Env):
         self.t = self.t0  # TODO reinstate reset for observation_space
 
         if self.obs_type == 'agent_only':
-            self.observation_space = torch.cat((self.state, torch.tensor(10.0).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
+            self.observation_space = torch.cat((self.state, torch.tensor(10.0 / 1003.04).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
         elif self.obs_type == 'all_shared':
-            mid = torch.cat((self.state[:, 1:], torch.tensor([10.0]).repeat(self.num_agents, 1)), dim=1).flatten().repeat(self.num_agents, 1)
+            mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 1003.04]).repeat(self.num_agents, 1)), dim=1).flatten().repeat(self.num_agents, 1)
             self.observation_space = torch.cat((torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1), mid), dim=1)
 
         return self.state, self.observation_space
@@ -259,9 +263,15 @@ class AYS_Environment(Env):
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):
+                # print(self.state[agent])
+                # print(self.PB[agent])
+                # print(torch.norm(self.state[agent]-self.PB[agent]))
+                # sys.exit()
+
                 self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
+                # self.reward[agent] = torch.norm(self.state[agent, 1:] - self.PB[agent, 1:])
             else:
-                self.reward[agent] = 0.0  # -torch.norm(self.state[agent]-self.PB[agent])
+                self.reward[agent] = -1.0  # 0.0  # -torch.norm(self.state[agent]-self.PB[agent])
 
         def reward_distance_PB_new(agent, action=0):
             self.reward[agent] = 0.0
@@ -363,7 +373,7 @@ class AYS_Environment(Env):
         a = self.state[agent, 2]
         is_inside = True
 
-        if a > self.A_PB[agent] or y < self.Y_SF[agent] or e < self.E_LIMIT[agent]:
+        if a > self.A_PB[agent] or y < self.Y_SF[agent] or e > self.E_LIMIT[agent]:
             is_inside = False
             # print("Outside PB!")
         return is_inside
@@ -374,7 +384,7 @@ class AYS_Environment(Env):
         a = self.state[:, 2]
         is_inside = True
 
-        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(e < self.E_LIMIT):
+        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(e > self.E_LIMIT):
             is_inside = False
             # print("Outside PB!")
         return is_inside

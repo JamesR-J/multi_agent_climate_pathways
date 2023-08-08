@@ -221,11 +221,6 @@ def add_boundary(ax3d, *, sunny_boundaries, add_outer=False, plot_boundaries=Non
         w_min, w_max = plot_boundaries[1]
         s_min, s_max = plot_boundaries[2]
 
-    # print(a_min)
-    # print(a_max)
-
-    a_max = 20  # TODO this a dodgy fix for now
-
     if model == 'ricen':
         a_min = 0
         a_max = 20
@@ -405,16 +400,17 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
     transf = ft.partial(compactification, x_mid=current_state[0])
     inv_transf = ft.partial(inv_compactification, x_mid=current_state[0])
 
-    ax3d.set_xlim(0, 20)  # TODO fix this hardcoded fix somehow idk how
-
     # A- ticks
-    # if boundaries[0] is None:
-    #     start, stop = 0, np.infty
-    #     ax3d.set_xlim(0,1)
-    # else:
-    #     start, stop = inv_transf(boundaries[0])
-    #     ax3d.set_xlim(*boundaries[0])
-    # formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
+    if boundaries[0] is None:
+        start, stop = 0, 20  # np.infty
+        ax3d.set_xlim(0, 1)
+    else:
+        start, stop = inv_transf(boundaries[0])
+        ax3d.set_xlim(*boundaries[0])
+
+    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])  # TODO hardcoded fix but it works for now inni
+
+    # formatters, locators = transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
     # if transformed_formatters:
     #     new_formatters = []
     #     for el, loc in zip(formatters, locators):

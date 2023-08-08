@@ -142,6 +142,9 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     args = np.array(args)[:-1].reshape((-1, 8))
 
     ays_matrix = torch.tensor(ays[:, 0:3])
+    # ays_matrix[:, 0] = 0.99
+    # ays_matrix[:, 1] = 0.99
+    # ays_matrix[:, 2] = 0.0
     args = torch.tensor(args)
     ays_inv_matrix = 1 - ays_matrix
     ays_inv_s_rho_matrix = ays_inv_matrix.clone()
@@ -153,10 +156,11 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     E_matrix = K_matrix / (args[:, 2] * args[:, 1]).view(num_agents, 1) * Y_matrix
     E_tot = torch.sum(E_matrix).repeat(num_agents, 1) / num_agents  # TODO this divide by num_agents is an awful fix but it currently works lol
 
-    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)  # TODO done the same here need to check if okay
+    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)  # TODO done the same here need to check if okay as taking the first value
     ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix)
     sdot = (1 - K_matrix) * (ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2]).view(num_agents, 1) * Y_matrix / (args[:, 1] * S_mid).view(num_agents, 1) - (ays_matrix[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]).view(num_agents, 1)
 
+    E_matrix /= 20  # 1003.04  # TODO 1003.04 is the max but just using 20 for now
     final_matrix = torch.cat((adot, ydot, sdot, E_matrix), dim=1)
 
     return final_matrix.flatten()

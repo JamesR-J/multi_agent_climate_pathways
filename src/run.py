@@ -24,18 +24,19 @@ if __name__ == "__main__":
     # parser.add_argument('--chkpt_load', default=True)
     parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_num_agents=2_episodes=5/end_time=28-07-2023_12-06-55.tar")
 
-    # parser.add_argument('--reward_type', default="PB")
+    parser.add_argument('--reward_type', default="PB")
+    # parser.add_argument('--reward_type', default="posi_negi_PB")
     # parser.add_argument('--reward_type', default="cap_PB")
     # parser.add_argument('--reward_type', default="carbon_reduc")
-    parser.add_argument('--reward_type', default="emission_reduc")
+    # parser.add_argument('--reward_type', default="emission_reduc")
 
     parser.add_argument('--observation_type', default="agent_only")
     # parser.add_argument('--observation_type', default="all_shared")
 
     parser.add_argument('--test_actions', default=False)
     # parser.add_argument('--test_actions', default=True)
-    # parser.add_argument('--model', type=str, default="ays")
-    parser.add_argument('--model', type=str, default="rice-n")
+    parser.add_argument('--model', type=str, default="ays")
+    # parser.add_argument('--model', type=str, default="rice-n")
     parser.add_argument('--num_agents', type=int, default=1)
 
     arguments = parser.parse_args()
