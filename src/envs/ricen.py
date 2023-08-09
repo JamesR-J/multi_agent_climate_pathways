@@ -16,7 +16,7 @@ class RiceN(Env):
 
         self.num_agents = num_agents
 
-        self.num_discrete_action_levels = 10  # num_discrete_action_levels
+        self.num_discrete_action_levels = 9  # 2  # 10
         self.negotiation_on = False  # negotiation_on
         self.float_dtype = np.float32
         self.int_dtype = np.int32
@@ -95,7 +95,7 @@ class RiceN(Env):
         self.temp_pb = torch.tensor([7.0]).repeat(self.num_agents, 1)  # TODO need to find a better num with backup paper
         self.Y_SF = torch.tensor([0.0]).repeat(self.num_agents, 1)
         self.S_LIMIT = torch.tensor(torch.inf).repeat(self.num_agents, 1)  # TODO this causes scaling issues so not good to use
-        self.PB = torch.cat((self.temp_pb, self.Y_SF, self.S_LIMIT), dim=1)
+        self.PB = torch.cat((self.S_LIMIT, self.Y_SF, self.temp_pb), dim=1)
 
         self.global_state = {}
 
@@ -443,6 +443,7 @@ class RiceN(Env):
         self.state = self._perform_step(action)
         self.observation_space = self.generate_observation()
 
+        print(self.state)
         if not self.final_state.bool().any():
             assert torch.all(self.state[:, 2] == self.state[0, 2]), "Values in the first column are not all equal"
 
@@ -827,7 +828,8 @@ class RiceN(Env):
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):
-                self.reward[agent] = torch.norm(self.state[agent, :2]-self.PB[agent, :2])  # TODO try this but want to normalise the two values maybe - atm capital way bigger effect than temp, not sure how to normalise it tho
+                self.reward[agent] += torch.norm(self.state[agent, 2] - self.PB[agent, 2])
+                self.reward[agent] += torch.norm(self.state[agent, 1] - self.PB[agent, 1]) / 100
             else:
                 self.reward[agent] = -10.0
 
