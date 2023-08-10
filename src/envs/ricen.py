@@ -507,13 +507,6 @@ class RiceN(Env):
                                   for agent in range(self.num_agents)
                               ],
                               self.t)
-        print([action_n[agent][export_action_index] / self.num_discrete_action_levels
-                                  for agent in range(self.num_agents)])
-        print([
-                                  action_n[agent][tariffs_action_index: tariffs_action_index + self.num_agents]
-                                  / self.num_discrete_action_levels
-                                  for agent in range(self.num_agents)
-                              ])
         self.set_global_state("future_tariffs",
                               [
                                   action_n[agent][tariffs_action_index: tariffs_action_index + self.num_agents]
