@@ -153,12 +153,15 @@ class AYS_Environment(Env):
         self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636
         self.E_LIMIT = torch.tensor([1.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.E_LIMIT, self.Y_SF, self.A_PB), dim=1)
+        self.PB_2 = torch.cat((self.A_PB, self.Y_SF, torch.tensor([0.0]).repeat(self.num_agents, 1)), dim=1)
 
     def step(self, action: int):
         """
         This function performs one simulation step in an RL algorithm.
         It updates the state and returns a reward according to the chosen reward-function.
         """
+
+        # print(self.state)
 
         next_t = self.t + self.dt
 
@@ -167,8 +170,6 @@ class AYS_Environment(Env):
         self.state[:, 1] = result[:, 1]
         self.state[:, 2] = result[:, 0]
         self.observation_space = self.generate_observation(result)
-
-        # print(self.state)
 
         if not self.final_state.bool().any():
             assert torch.all(self.state[:, 2] == self.state[0, 2]), "Values in the A column are not all equal"
@@ -185,7 +186,7 @@ class AYS_Environment(Env):
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
             if self.final_state[agent] and (self.reward_type[agent] == "PB" or self.reward_type[agent] == "policy_cost"):  # TODO shold this include the new PB_ext or PB_new - reinstate aswell
-                self.reward[agent] += self.calculate_expected_final_reward(agent)
+                self.reward[agent] += self.calculate_expected_final_reward(agent)  # TODO this doesnt work with done thing I need to adjust this within here rather than in the other file !!
             # if self.final_state[agent] and self.reward_type == "PB_ext":  # TODO means can get the final step if done ie the extra or less reward for PB_ext - bit of a dodgy workaround may look at altering the reward placement in the step function
             #     self.get_reward_function()
 
@@ -263,15 +264,11 @@ class AYS_Environment(Env):
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):
-                # print(self.state[agent])
-                # print(self.PB[agent])
-                # print(torch.norm(self.state[agent]-self.PB[agent]))
-                # sys.exit()
-
-                self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
+                # self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
                 # self.reward[agent] = torch.norm(self.state[agent, 1:] - self.PB[agent, 1:])
+                self.reward[agent] = torch.norm(self.observation_space[agent, :3] - self.PB_2[agent])
             else:
-                self.reward[agent] = -1.0  # 0.0  # -torch.norm(self.state[agent]-self.PB[agent])
+                self.reward[agent] = 0.0  # -1.0  # -torch.norm(self.state[agent]-self.PB[agent])
 
         def reward_distance_PB_new(agent, action=0):
             self.reward[agent] = 0.0
@@ -468,6 +465,8 @@ class AYS_Environment(Env):
 
             const_val = self.state[0, 0]
             self.state[:, 0] = const_val
+
+            # self.state[:, 2] = 0.2  # TODO just trying to force it lower idk but this does not work defo
 
             # print(self.state)
 

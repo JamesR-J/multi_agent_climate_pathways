@@ -20,7 +20,7 @@ class MARL_agent:
                  max_episodes=5000, max_steps=1000, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
-                 obs_type='all_shared'):
+                 obs_type='all_shared', load_multi=False):
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -78,14 +78,23 @@ class MARL_agent:
 
         self.agent_str = "DQN"
 
-        self.agent = [DQN(self.state_dim, self.action_dim) for _ in range(self.num_agents)]
-
-        self.test_actions = test_actions
-        self.episode_count = 0
-
         self.chkpt_load = chkpt_load
         self.chkpt_load_path = chkpt_load_path
+        self.load_multi = load_multi
         self.time = time.time()
+        self.episode_count = 0
+
+        if self.chkpt_load:
+            self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
+
+        if self.episode_count > 0:
+            epsilon = 0.99
+        else:
+            epsilon = 1.0
+
+        self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+
+        self.test_actions = test_actions
 
     def append_data(self, episode_reward):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
@@ -146,9 +155,13 @@ class MARL_agent:
         if self.chkpt_load:
             checkpoint = torch.load(self.chkpt_load_path)
             for agent in range(self.num_agents):
-                self.agent[agent].target_net.load_state_dict(checkpoint['agent_' + str(agent) + '_target_state_dict'])
-                self.agent[agent].policy_net.load_state_dict(checkpoint['agent_' + str(agent) + '_policy_state_dict'])
-                self.agent[agent].optimizer.load_state_dict(checkpoint['agent_' + str(agent) + '_optimiser_state_dict'])
+                if self.load_multi:
+                    chkpt_string = 'agent_0'
+                else:
+                    chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
+                self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
+                self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
+                self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
             self.episode_count = checkpoint['episode_count']
 
         for episodes in range(self.max_episodes):
@@ -175,7 +188,13 @@ class MARL_agent:
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
                 for agent in range(self.num_agents):
-                    if not self.early_finish[agent]:
+                    if done[agent]:
+                        self.early_finish[agent] = True  # TODO allows red line plot but that is all - maybe better to implement later just if agent goes beyond a line or something
+                if not torch.all(done):
+                    done = torch.tensor([False]).repeat(self.num_agents, 1)  # TODO dodgy fix so that done doesn't show to agent updates until both are done
+
+                for agent in range(self.num_agents):
+                    # if not self.early_finish[agent]:
                         episode_reward[agent] += reward[agent]
                         memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
                         if len(memory[agent]) > self.batch_size:
@@ -219,8 +238,8 @@ class MARL_agent:
 
                     plt.pause(0.00001)
 
-                # if torch.all(done):
-                if torch.any(done):  # TODO but means that the early ended agent won't get more reward as doesnt get final count function thing - see if it matters I guess
+                if torch.all(done):
+                # if torch.any(done):  # TODO but means that the early ended agent won't get more reward as doesnt get final count function thing - see if it matters I guess
                     break
 
             if self.animation:

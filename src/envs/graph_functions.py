@@ -93,11 +93,11 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     S_scale = 1e9
     Y_scale = 1e12
     # ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
-    ax3d.set_xlabel("\n\nemissions inni", )
+    ax3d.set_xlabel("\n\nemissions E  \n  [GtC]", )  # TODO finalise this correctly
     ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]" % Y_scale, )
     # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
     if not top_down:
-        ax3d.set_zlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
+        ax3d.set_zlabel("\n\ntotal excess atmospheric carbon\nstock A [GtC]", )
 
     # Add boundaries to plot
     if plot_boundary:
