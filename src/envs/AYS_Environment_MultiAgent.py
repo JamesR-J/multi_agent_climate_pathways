@@ -180,8 +180,8 @@ class AYS_Environment(Env):
         self.get_reward_function()  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
         for agent in range(self.num_agents):
-            # if self._arrived_at_final_state(agent):  # TODO turn back on as makes training way quicker
-            #     self.final_state[agent] = True
+            if self._arrived_at_final_state(agent):  # TODO turn back on as makes training way quicker
+                self.final_state[agent] = True
             # if not self._inside_a_pb(agent):
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
