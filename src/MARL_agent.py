@@ -6,7 +6,7 @@ from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
 from learn import utils
 import wandb
-from rl_algos import DQN
+from rl_algos import DQN, DuelDDQN
 from envs.ricen import RiceN
 
 import matplotlib.pyplot as plt
@@ -17,7 +17,7 @@ print(DEVICE)
 
 class MARL_agent:
     def __init__(self, model, chkpt_load_path, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
-                 max_episodes=5000, max_steps=1000, max_frames=1e5,
+                 max_episodes=4000, max_steps=1000, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
                  obs_type='all_shared', load_multi=False):
@@ -28,11 +28,15 @@ class MARL_agent:
         self.model = model
 
         self.reward_type = [reward_type] * self.num_agents
+        self.reward_type = reward_type
+
+        assert self.num_agents == len(self.reward_type), "Reward function number does not match no. of agents"
+
         self.gamma = gamma
 
         if self.model == "ays":
             self.env = AYS_Environment(num_agents=self.num_agents, reward_type=self.reward_type, max_steps=max_steps,
-                                       discount=self.gamma, obs_type=self.obs_type)
+                                       gamma=self.gamma, obs_type=self.obs_type)
         elif self.model == "rice-n":
             self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
                              max_steps=max_steps, discount=self.gamma)
@@ -48,9 +52,8 @@ class MARL_agent:
         self.max_frames = max_frames
         self.max_epochs = max_epochs
 
-        self.agent_str = "DQN"
-        self.per_is = False
         self.alpha = 0.213
+        self.beta = 0.7389
         self.buffer_size = 32768
         self.batch_size = 256
         self.decay_number = decay_number
@@ -76,23 +79,27 @@ class MARL_agent:
         self.animation = animation
         self.top_down = top_down
 
-        self.agent_str = "DQN"
+        # self.agent_str = "DQN"
+        self.agent_str = "DuelDDQN"
 
         self.chkpt_load = chkpt_load
         self.chkpt_load_path = chkpt_load_path
         self.load_multi = load_multi
-        self.time = time.time()
         self.episode_count = 0
 
         if self.chkpt_load:
             self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
+            self.max_episodes += self.episode_count
 
         if self.episode_count > 0:
             epsilon = 0.99
         else:
             epsilon = 1.0
 
-        self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+        if self.agent_str == "DQN":
+            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+        elif self.agent_str == "DuelDDQN":
+            self.agent = [DuelDDQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
 
         self.test_actions = test_actions
 
@@ -150,7 +157,10 @@ class MARL_agent:
 
         # memory = utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha,
         #                                    state_dim=self.state_dim) if self.per_is else utils.ReplayBuffer(self.buffer_size)
-        memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
+        if self.agent_str == "DuelDDQN":
+            memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
+        else:
+            memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
         if self.chkpt_load:
             checkpoint = torch.load(self.chkpt_load_path)
@@ -188,18 +198,24 @@ class MARL_agent:
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
                 for agent in range(self.num_agents):
-                    if done[agent]:
-                        self.early_finish[agent] = True  # TODO allows red line plot but that is all - maybe better to implement later just if agent goes beyond a line or something
-                if not torch.all(done):
-                    done = torch.tensor([False]).repeat(self.num_agents, 1)  # TODO dodgy fix so that done doesn't show to agent updates until both are done
-
-                for agent in range(self.num_agents):
                     # if not self.early_finish[agent]:
                         episode_reward[agent] += reward[agent]
                         memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
                         if len(memory[agent]) > self.batch_size:
-                            sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
-                            loss, _ = self.agent[agent].update(sample)
+                            if self.agent_str == "DuelDDQN":
+                                self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
+                                sample = memory[agent].sample(self.batch_size, self.beta)
+                                loss, tds = self.agent[agent].update(
+                                    (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
+                                     sample['done']),
+                                    weights=sample['weights']
+                                )
+                                new_tds = np.abs(tds.cpu().numpy()) + 1e-6
+                                memory[agent].update_priorities(sample['indexes'], new_tds)
+                            else:
+                                sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
+                                loss, _ = self.agent[agent].update(sample)
+
                             label = "loss_agent_" + str(agent)
                             wandb.log({label: loss}) if self.wandb_save else None
                         if done[agent]:
@@ -210,10 +226,6 @@ class MARL_agent:
                 obs_n = next_obs.clone()
                 state_n = next_state.clone()
                 self.data['frame_idx'] += 1
-
-                # print(i)
-                # print(time.time() - self.time)
-                # self.time = time.time()
 
                 if self.animation:
                     for line in ax3d.lines:
@@ -231,7 +243,7 @@ class MARL_agent:
                             ax3d.plot3D(xs=x_values[agent], ys=y_values[agent], zs=z_values[agent],
                                         color=colors[agent], alpha=0.8, lw=3, label="Agent : {}".format(agent))
 
-                    ax3d.set_title(["Agent {} reward : {:.2f}".format(agent, reward[agent][0]) for agent in
+                    ax3d.set_title(["Agent {} {} reward : {:.2f}".format(agent, self.reward_type[agent], reward[agent][0]) for agent in
                                     range(self.num_agents)])
                     # ax3d.set_title(i)
                     ax3d.legend()

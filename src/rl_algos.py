@@ -20,13 +20,31 @@ class NN(nn.Module):
         super(NN, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.out = nn.Linear(hidden_dim // 2, action_dim)
+        self.out = nn.Linear(hidden_dim // 2, action_dim)  # TODO should this be // 2 or nah
 
     def forward(self, x):
         x = F.relu(self.fc1(x.float()))  # TODO traceback why need a float here
         x = F.relu(self.fc2(x))
         q_val = self.out(x)
         return q_val
+
+
+class DuellingNN(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
+        super(DuellingNN, self).__init__()
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.a = nn.Linear(hidden_dim // 2, action_dim)  # TODO same here inni
+        self.v = nn.Linear(hidden_dim // 2, 1)  # TODO same here inni
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x.float()))  # TODO traceback why need a float here
+        x = F.relu(self.fc2(x))
+        advantages = self.a(x)
+        value = self.v(x)
+        a_values = value + (advantages - advantages.mean())
+
+        return a_values
 
 
 class DQN:
@@ -83,7 +101,10 @@ class DQN:
         next_state_values = self.next_state_value_estimation(next_states, done)
 
         # target: y_t = r_t + gamma * max[Q(s,a)]
-        targets = (rewards.squeeze(1) + self.gamma * next_state_values.squeeze(1))
+        if rewards.shape == (256, 1):  # TODO 256 is batch size and hardcoded also in the NN
+            targets = (rewards.squeeze(1) + self.gamma * next_state_values.squeeze(1))
+        else:
+            targets = (rewards + self.gamma * next_state_values.squeeze(1))
 
         # if we have weights from importance sampling
         if weights is not None:
@@ -92,7 +113,6 @@ class DQN:
         # otherwise we use the standard MSE loss
         else:
             loss = self.loss(state_qs, targets)
-
 
         # back propagation
         self.optimizer.zero_grad()
@@ -127,3 +147,27 @@ class DQN:
 
     def __str__(self):
         return "DQN"
+
+
+class DuelDDQN(DQN):
+    def __init__(self, state_dim, action_dim, lr=0.004133, rho=0.5307, tau=0.01856, **kwargs):
+        super(DuelDDQN, self).__init__(state_dim, action_dim, lr=lr, rho=rho, tau=tau, **kwargs)
+
+        self.target_net = DuellingNN(state_dim, action_dim).to(DEVICE)
+        self.policy_net = DuellingNN(state_dim, action_dim).to(DEVICE)
+        self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.lr)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, gamma=self.decay, step_size=self.step_decay)
+
+    @torch.no_grad()
+    def next_state_value_estimation(self, next_states, done):
+        """next state value estimation is different for DDQN,
+        decouples action selection and evaluation for reduced estimation bias"""
+        # find max valued action with policy net
+        max_actions = self.policy_net(next_states).argmax(1).unsqueeze(1)
+        # estimate value of best action with target net
+        next_state_values = self.target_net(next_states).gather(1, max_actions)
+        next_state_values[done] = 0
+        return next_state_values
+
+    def __str__(self):
+        return "DuelDDQN"
