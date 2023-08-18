@@ -20,7 +20,7 @@ class MARL_agent:
                  max_episodes=4000, max_steps=1000, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
-                 obs_type='all_shared', load_multi=False):
+                 obs_type='all_shared', load_multi=False, rational=[True, True]):
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -96,6 +96,12 @@ class MARL_agent:
         else:
             epsilon = 1.0
 
+        self.rational = rational
+        self.rational_ep = [True] * self.num_agents
+        self.irrational_end = [0] * self.num_agents
+        self.rational_const = 0.2  # TODO tweak this param aswell for rationality
+        print("Rational behaviour: {}".format(self.rational))
+
         if self.agent_str == "DQN":
             self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
         elif self.agent_str == "DuelDDQN":
@@ -128,12 +134,22 @@ class MARL_agent:
                 label_2 = "moving_avg_rewards_agent_" + str(agent)
                 wandb.log({label_1: episode_reward[agent]})
                 wandb.log({label_2: self.data['moving_avg_rewards'][-1][agent][
-                    0]})  # TODO check moving_avg_rewards as seems both agents have the same - could be the same atm as reward should be the same since it only cares about the shared z axis with PB reward
+                    0]})
 
         if self.model == 'ays':  # TODO redo this for ricen
             print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
                   self.env.which_final_state().name) \
                 if self.verbose else None
+
+    def rational_calc(self, agent, step):
+        if not self.rational[agent]:
+            if self.rational_ep[agent]:
+                if np.random.uniform() < self.rational_const:
+                    self.rational_ep[agent] = False
+                    self.irrational_end[agent] = step + np.random.randint(1, 10)  # TODO adjust this range
+            else:
+                if step == self.irrational_end[agent]:
+                    self.rational_ep[agent] = True
 
     def training_run(self):
 
@@ -149,14 +165,12 @@ class MARL_agent:
         self.data['frame_idx'] = self.data['episodes'] = 0
 
         if self.wandb_save:
-            # wandb.init(project="ucl_diss", entity="climate_policy_optim", config=config, job_type=str(experiment.agent),group=group_name)
             wandb.init(project="ucl_diss", group=self.model,
                        config={"reward_type": self.reward_type,
                                "observations": self.obs_type,
+                               "rational": self.rational
                                })
 
-        # memory = utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha,
-        #                                    state_dim=self.state_dim) if self.per_is else utils.ReplayBuffer(self.buffer_size)
         if self.agent_str == "DuelDDQN":
             memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
         else:
@@ -177,9 +191,12 @@ class MARL_agent:
         for episodes in range(self.max_episodes):
 
             # reset environment to a random state (0.5, 0.5, 0.5) * gaussian noise
-            state_n, obs_n = self.env.reset()
+            state_n, obs_n = self.env.reset()  # TODO check this stuff
             self.early_finish = [False] * self.num_agents
             episode_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
+
+            self.rational_ep = [True] * self.num_agents
+            self.irrational_end = [0] * self.num_agents
 
             if self.animation:
                 x_values = [[] for _ in range(self.num_agents)]
@@ -188,9 +205,10 @@ class MARL_agent:
 
             for i in range(self.max_steps):
 
-                # print(obs_n)
+                for agent in range(self.num_agents):
+                    self.rational_calc(agent, i)
 
-                action_n = torch.tensor([self.agent[ind].get_action(obs_n[ind]) for ind in range(self.num_agents)])
+                action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
@@ -266,7 +284,6 @@ class MARL_agent:
         self.episode_count += self.max_episodes
 
         # add checkpointing here
-        # print()
         chkpt_save_path = './checkpoints/env=' + str(self.model) + '_reward_type=' + str(self.reward_type) \
                           + '_obs_type=' + str(self.obs_type) + '_num_agents=' + str(self.num_agents) \
                           + '_episodes=' + str(self.episode_count)

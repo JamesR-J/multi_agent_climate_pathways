@@ -23,18 +23,6 @@ from .graph_functions import create_figure_ays
 from . import graph_functions as ays_plot, ays_model as ays
 
 
-# SMALL_SIZE = 12
-# MEDIUM_SIZE = 14
-# BIGGER_SIZE = 16
-# plt.rc('font', size=SMALL_SIZE)  # controls default text sizes
-# plt.rc('axes', titlesize=MEDIUM_SIZE)  # fontsize of the axes title
-# plt.rc('axes', labelsize=MEDIUM_SIZE)  # fontsize of the x and y labels
-# plt.rc('xtick', labelsize=SMALL_SIZE)  # fontsize of the tick labels
-# plt.rc('ytick', labelsize=SMALL_SIZE)  # fontsize of the tick labels
-# plt.rc('legend', fontsize=MEDIUM_SIZE)  # legend fontsize
-# plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
-
-
 class Basins(Enum):
     OUT_PB = 0
     BLACK_FP = 1
@@ -112,11 +100,8 @@ class AYS_Environment(Env):
         # The grid defines the number of cells, hence we have 8x8 possible states
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
-
-        # self.reward_type = reward_type
         self.reward_type = reward_type
-        print("This is the reward type: {}".format(self.reward_type))
-        # self.reward_function = self.get_reward_function(reward_type)
+        print("Reward type: {}".format(self.reward_type))
 
         self.timeStart = 0
         self.intSteps = 10  # integration Steps
@@ -132,12 +117,10 @@ class AYS_Environment(Env):
 
         self.X_MID = [240, 7e13, 501.5198]
 
-        # Definitions from outside
-        # self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
-        # self.state = self.start_state = self.current_state
         self.state = self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
+        self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
         self.obs_type = obs_type
-        print("This is the observation type: {}".format(self.obs_type))
+        print("Observation type: {}".format(self.obs_type))
         if self.obs_type == 'agent_only':
             self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
         elif self.obs_type == 'all_shared':
@@ -146,23 +129,14 @@ class AYS_Environment(Env):
         """
         This values define the planetary boundaries of the AYS model
         """
-        # print(ays.boundary_parameters["A_PB"])
-        # print(self.X_MID[0])
-        # sys.exit()
         self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(self.num_agents, 1)  # Planetary boundary: 0.5897
         self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636
         self.E_LIMIT = torch.tensor([1.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.E_LIMIT, self.Y_SF, self.A_PB), dim=1)
         self.PB_2 = torch.cat((self.A_PB, self.Y_SF, torch.tensor([0.0]).repeat(self.num_agents, 1)), dim=1)
-        self.PB_3 = torch.cat((torch.tensor([0.0]).repeat(self.num_agents, 1), self.Y_SF, torch.tensor([0.0]).repeat(self.num_agents, 1)), dim=1)
+        self.PB_3 = torch.cat((torch.tensor([0.0]).repeat(self.num_agents, 1), self.Y_SF, torch.tensor([0.0]).repeat(self.num_agents, 1), torch.tensor([0.0]).repeat(self.num_agents, 1)), dim=1)
 
     def step(self, action: int):
-        """
-        This function performs one simulation step in an RL algorithm.
-        It updates the state and returns a reward according to the chosen reward-function.
-        """
-
-        # print(self.state)
 
         next_t = self.t + self.dt
 
@@ -170,7 +144,7 @@ class AYS_Environment(Env):
         self.state[:, 0] = result[:, 3]
         self.state[:, 1] = result[:, 1]
         self.state[:, 2] = result[:, 0]
-        self.observation_space = self.generate_observation(result)
+        self.observation_space, self.reward_space = self.generate_observation(result)
 
         if not self.final_state.bool().any():
             assert torch.all(self.state[:, 2] == self.state[0, 2]), "Values in the A column are not all equal"
@@ -180,9 +154,9 @@ class AYS_Environment(Env):
         self.get_reward_function()  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
 
         for agent in range(self.num_agents):
-            if self._arrived_at_final_state(agent):  # TODO turn back on as makes training way quicker
+            if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            # if not self._inside_a_pb(agent):
+            # if not self._inside_A_pb(agent):  # TODO maybe adjust this so insideA_PB used for sigle agent and the other for both? but then if both agents outside the y pb then the current thing would end but this one would not, hmmmm maybe test it ya know
             if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
 
@@ -200,12 +174,12 @@ class AYS_Environment(Env):
 
     def generate_observation(self, ode_int_output):
         if self.obs_type == "agent_only":
-            return ode_int_output
+            return ode_int_output, ode_int_output
 
         elif self.obs_type == "all_shared":
             result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
             result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)
-            return result
+            return result, ode_int_output
 
     def _perform_step(self, action, next_t):
 
@@ -214,12 +188,13 @@ class AYS_Environment(Env):
         parameter_vector = parameter_matrix.flatten()
         parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
 
+        # if self.obs_type == "agent_only":  # TODO think can remove this with the new self.reward_space
+        #     ode_input = torch.cat((self.observation_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
+        # elif self.obs_type == "all_shared":
+        #     input = torch.cat((self.observation_space[0, self.num_agents].repeat(self.num_agents, 1), self.observation_space[0, (self.num_agents + 1):].view(self.num_agents, 3)[:, :2]), dim=1)
+        #     ode_input = torch.cat((input, torch.zeros((self.num_agents, 1))), dim=1)
 
-        if self.obs_type == "agent_only":
-            ode_input = torch.cat((self.observation_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
-        elif self.obs_type == "all_shared":
-            input = torch.cat((self.observation_space[0, self.num_agents].repeat(self.num_agents, 1), self.observation_space[0, (self.num_agents + 1):].view(self.num_agents, 3)[:, :2]), dim=1)
-            ode_input = torch.cat((input, torch.zeros((self.num_agents, 1))), dim=1)
+        ode_input = torch.cat((self.reward_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
 
         traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ode_input.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
 
@@ -231,6 +206,8 @@ class AYS_Environment(Env):
 
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.t = self.t0  # TODO reinstate reset for observation_space
+
+        self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
 
         if self.obs_type == 'agent_only':
             self.observation_space = torch.cat((self.state, torch.tensor(10.0 / 1003.04).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
@@ -254,15 +231,15 @@ class AYS_Environment(Env):
                     # reward -= self.management_cost  # we add more cost for using both actions
                     self.reward[agent] *= self.management_cost
 
-        def reward_distance_PB(agent, action=0):  # TODO check this is correct idk if it is really lol due to changing s to emissions
+        def reward_distance_PB(agent, action=0):
             self.reward[agent] = 0.0
 
             if self._inside_planetary_boundaries(agent):
                 # self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
                 # self.reward[agent] = torch.norm(self.state[agent, 1:] - self.PB[agent, 1:])
-                self.reward[agent] = torch.norm(self.observation_space[agent, :3] - self.PB_2[agent])  # TODO this does ays stuff but if change observation space then this may need changing too somehow
+                self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])  # TODO check works fine with reward_space instead
             else:
-                self.reward[agent] = 0.0  # -1.0  # -torch.norm(self.state[agent]-self.PB[agent])  # TODO maybe look at some negative thing the further outside the ideal space it is
+                self.reward[agent] = 0.0  # -torch.norm(self.state[agent]-self.PB[agent])  # TODO maybe look at some negative thing the further outside the ideal space it is
 
         def reward_distance_PB_new(agent, action=0):
             self.reward[agent] = 0.0
@@ -276,15 +253,20 @@ class AYS_Environment(Env):
                 if self.state[agent, 1] <= self.Y_SF[agent]:
                     self.reward[agent] += -100
 
-        def reward_distance_Y(agent, action=0):  # TODO check this is correct idk if it is really lol due to changing s to emissions
+        def reward_distance_Y(agent, action=0):
             self.reward[agent] = 0.
 
-            self.reward[agent] = torch.norm(self.observation_space[agent, :2] - self.PB_3[agent, :2])
+            self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])  # max a and y
 
             # if self._inside_planetary_boundaries(agent):  # TODO do we need to check even in PB as we don't care about PBs
-            #     self.reward[agent] = torch.norm(self.observation_space[agent, :2] - self.PB_3[agent, :2])
+            #     self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])
             # else:
             #     self.reward[agent] = 0.0
+
+        def reward_distance_E(agent, action=0):
+            self.reward[agent] = 0.
+
+            self.reward[agent] = torch.abs(self.reward_space[agent, 3] - self.PB_3[agent, 3])  # max e
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
@@ -293,6 +275,8 @@ class AYS_Environment(Env):
                 reward_distance_PB_new(agent)
             elif self.reward_type[agent] == 'max_Y':
                 reward_distance_Y(agent)
+            elif self.reward_type[agent] == 'max_E':
+                reward_distance_E(agent)
             elif self.reward_type[agent] == "policy_cost":
                 policy_cost(agent)
             elif self.reward_type[agent] == None:
@@ -341,7 +325,7 @@ class AYS_Environment(Env):
             return np.infty
         return x_mid * y / (1 - y)
 
-    def _inside_a_pb(self, agent):  # TODO confirm this is correct
+    def _inside_A_pb(self, agent):  # TODO think this needed for single agent stuff
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
@@ -390,25 +374,25 @@ class AYS_Environment(Env):
         else:
             return False
 
-    def _good_final_state(self, agent):  # TODO confirm this is correct and adapt what is good final state ya know
-        a = self.state[agent, 0]
+    def _good_final_state(self, agent):  # TODO confirm this is correct
+        e = self.state[agent, 0]
         y = self.state[agent, 1]
-        s = self.state[agent, 2]
-        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent]\
+        a = self.state[agent, 2]
+        if np.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent]\
                 and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
-                and np.abs(s - self.green_fp[agent, 2]) < self.final_radius[agent]:
+                and np.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
             return False
 
     def which_final_state(self, agent):  # TODO confirm this is correct
-        a = self.state[agent, 0]
+        e = self.state[agent, 0]
         y = self.state[agent, 1]
-        s = self.state[agent, 2]
-        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] and np.abs(s - self.green_fp[agent, 2]) < self.final_radius[agent]:
+        a = self.state[agent, 2]
+        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] and np.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             # print("ARRIVED AT GREEN FINAL STATE WITHOUT VIOLATING PB!")
             return Basins.GREEN_FP
-        elif np.abs(a - self.brown_fp[agent,  0]) < self.final_radius[agent] and np.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent] and np.abs(s - self.brown_fp[agent, 2]) < self.final_radius[agent]:
+        elif np.abs(a - self.brown_fp[agent,  0]) < self.final_radius[agent] and np.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent] and np.abs(a - self.brown_fp[agent, 2]) < self.final_radius[agent]:
             return Basins.BLACK_FP
         else:
             # return Basins.OUT_PB
@@ -424,12 +408,6 @@ class AYS_Environment(Env):
             return Basins.E_PB
         else:
             return Basins.OUT_OF_TIME
-
-    # def get_plot_state_list(self):
-    #     return self.state.tolist()[:3]
-    #
-    # def prepare_action_set(self, state):
-    #     return np.arange(len(self.action_space) - 1)
 
     def random_StartPoint(self):
 

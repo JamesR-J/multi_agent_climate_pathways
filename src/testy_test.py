@@ -1,3 +1,5 @@
+import operator
+
 import torch
 import sys
 from datetime import datetime
@@ -22,5 +24,18 @@ m_at = 1.0  # 851.0
 exogenous_emissions = 10.0  # 0.5
 
 result = np.dot(b_t, f_2x * np.log(m_at / m_at_1750) / np.log(2) + exogenous_emissions)  # this must be negative somehow
-print(result)
+# print(result)
+
+q_values = [0.16186343, 0.22504172, 0.2389216, 0.13161036]
+max_ind = np.argmax(q_values)
+q_dict = dict(enumerate(q_values))
+q_dict.pop(max_ind)
+print(q_values)
+print(max_ind)
+print(q_dict)
+print(list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))])
+print(np.random.choice(list(q_dict.keys())))
+
+
+
 

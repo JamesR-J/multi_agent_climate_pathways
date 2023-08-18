@@ -72,14 +72,20 @@ class DQN:
         self.epsilon = lambda t: 0.01 + epsilon / (t ** self.rho)
 
     @torch.no_grad()
-    def get_action(self, state: np.ndarray, testing=False):
+    def get_action(self, state: np.ndarray, testing=False, rational=True):
         self.t += 1
         if np.random.uniform() > self.epsilon(self.t) or testing:
             q_values = self.policy_net(torch.Tensor(state).to(DEVICE)).cpu().numpy()
-            # print(q_values)
-            # print(np.argmax(q_values))
-            # sys.exit()
-            return np.argmax(q_values)
+
+            if rational:
+                return np.argmax(q_values)
+            else:
+                max_ind = np.argmax(q_values)
+                q_dict = dict(enumerate(q_values))
+                q_dict.pop(max_ind)
+                # return list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))]  # 2nd best q value
+                return np.random.choice(list(q_dict.keys()))  # random choice but not the best
+
         else:
             return np.random.choice(self.action_size)
 
