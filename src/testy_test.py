@@ -30,11 +30,24 @@ q_values = [0.16186343, 0.22504172, 0.2389216, 0.13161036]
 max_ind = np.argmax(q_values)
 q_dict = dict(enumerate(q_values))
 q_dict.pop(max_ind)
-print(q_values)
-print(max_ind)
-print(q_dict)
-print(list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))])
-print(np.random.choice(list(q_dict.keys())))
+# print(q_values)
+# print(max_ind)
+# print(q_dict)
+# print(list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))])
+# print(np.random.choice(list(q_dict.keys())))
+
+
+# rewards = [tensor([[ 32.1177],
+#         [582.5378]]), tensor([[11.7752],
+#         [64.3992]]), tensor([[11.8183],
+#         [67.9852]])]
+rewards = [torch.tensor([32.1177, 582.5378]), torch.tensor([11.7752, 64.3992]), torch.tensor([11.8183, 67.9852])]
+concatenated = torch.stack(rewards[-50:])
+mean = torch.mean(concatenated, dim=0)
+
+print(rewards)
+print(concatenated)
+print(mean)
 
 
 

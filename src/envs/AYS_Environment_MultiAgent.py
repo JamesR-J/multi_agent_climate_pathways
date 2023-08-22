@@ -156,8 +156,8 @@ class AYS_Environment(Env):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            # if not self._inside_A_pb(agent):  # TODO maybe adjust this so insideA_PB used for sigle agent and the other for both? but then if both agents outside the y pb then the current thing would end but this one would not, hmmmm maybe test it ya know
-            if not self._inside_planetary_boundaries(agent):
+            if not self._inside_A_pb(agent):  # TODO maybe adjust this so insideA_PB used for sigle agent and the other for both? but then if both agents outside the y pb then the current thing would end but this one would not, hmmmm maybe test it ya know
+            # if not self._inside_planetary_boundaries(agent):
                 self.final_state[agent] = True
 
         if torch.all(self.final_state):
@@ -256,6 +256,7 @@ class AYS_Environment(Env):
         def reward_distance_Y(agent, action=0):
             self.reward[agent] = 0.
 
+            # self.reward[agent] = torch.abs(self.reward_space[agent, 1] - self.PB_3[agent, 1])  # max a and y
             self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])  # max a and y
 
             # if self._inside_planetary_boundaries(agent):  # TODO do we need to check even in PB as we don't care about PBs

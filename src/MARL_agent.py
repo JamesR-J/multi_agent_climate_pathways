@@ -114,12 +114,13 @@ class MARL_agent:
 
         self.data['rewards'].append(episode_reward)
 
-        concatenated = torch.stack(self.data['rewards'][-50:])  # TODO check this and the std and final states
+        concatenated = torch.stack(self.data['rewards'][-50:])
+
         mean = torch.mean(concatenated, dim=0)
         self.data['moving_avg_rewards'].append(mean.tolist())
 
         std = torch.std(concatenated, dim=0)
-        self.data['moving_avg_rewards'].append(std.tolist())
+        self.data['moving_std_rewards'].append(std.tolist())
 
         self.data['episodes'] += 1
 
