@@ -20,7 +20,7 @@ class MARL_agent:
                  max_episodes=4000, max_steps=1000, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
-                 obs_type='all_shared', load_multi=False, rational=[True, True]):
+                 obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False):
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -36,7 +36,7 @@ class MARL_agent:
 
         if self.model == "ays":
             self.env = AYS_Environment(num_agents=self.num_agents, reward_type=self.reward_type, max_steps=max_steps,
-                                       gamma=self.gamma, obs_type=self.obs_type)
+                                       gamma=self.gamma, obs_type=self.obs_type, trade_actions=trade_actions)
         elif self.model == "rice-n":
             self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
                              max_steps=max_steps, discount=self.gamma)
@@ -97,9 +97,12 @@ class MARL_agent:
             epsilon = 1.0
 
         self.rational = rational
+
+        assert self.num_agents == len(self.rational), "Rationality definition does not match no. of agents"
+
         self.rational_ep = [True] * self.num_agents
         self.irrational_end = [0] * self.num_agents
-        self.rational_const = 0.2  # TODO tweak this param aswell for rationality
+        self.rational_const = 0.1  # TODO tweak this param as well for rationality amount
         print("Rational behaviour: {}".format(self.rational))
 
         if self.agent_str == "DQN":
