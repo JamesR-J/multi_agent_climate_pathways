@@ -7,6 +7,9 @@ import torch
 # import shap
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from typing import Tuple
+from collections import Counter
+from torch import Tensor
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -181,6 +184,105 @@ class PER_IS_ReplayBuffer:
 
     def __len__(self):
         return self.size
+
+
+class MADDPG_ReplayBuffer:
+    def __init__(self, capacity, obs_dims, batch_size: int):  # Todo fix types
+
+        self.capacity = int(capacity)
+        self.entries = 0
+
+        self.batch_size = batch_size
+
+        self.obs_dims = obs_dims
+        self.max_obs_dim = np.max(obs_dims)
+        self.n_agents = len(obs_dims)
+
+        self.memory_obs = []
+        self.memory_nobs = []
+        for ii in range(self.n_agents):
+            self.memory_obs.append(Tensor(self.capacity, obs_dims[ii]))
+            self.memory_nobs.append(Tensor(self.capacity, obs_dims[ii]))
+        self.memory_acts = Tensor(self.n_agents, self.capacity)
+        self.memory_rwds = Tensor(self.n_agents, self.capacity)
+        self.memory_dones = Tensor(self.n_agents, self.capacity)
+
+    def store(self, obs, acts, rwds, nobs, dones):
+        store_index = self.entries % self.capacity
+
+        for ii in range(self.n_agents):
+            self.memory_obs[ii][store_index] = Tensor(obs[ii])
+            self.memory_nobs[ii][store_index] = Tensor(nobs[ii])
+        self.memory_acts[:, store_index] = Tensor(acts)
+        self.memory_rwds[:, store_index] = Tensor(rwds)
+        self.memory_dones[:, store_index] = Tensor(dones)
+
+        self.entries += 1
+
+    def sample(self):
+        if not self.ready(): return None
+
+        idxs = np.random.choice(
+            np.min((self.entries, self.capacity)),
+            size=(self.batch_size,),
+            replace=False,  # TODO: different from jax version
+        )
+
+        return {
+            "obs": [self.memory_obs[ii][idxs] for ii in range(self.n_agents)],
+            "acts": self.memory_acts[:, idxs],
+            "rwds": self.memory_rwds[:, idxs],
+            "nobs": [self.memory_nobs[ii][idxs] for ii in range(self.n_agents)],
+            "dones": self.memory_dones[:, idxs],
+        }
+
+    def ready(self):
+        return (self.batch_size <= self.entries)
+
+
+class RunningMeanStd(object):
+    """
+    TODO: Move into utils file?
+
+    Taken from: https://github.com/semitable/fast-marl
+    """
+    def __init__(self, epsilon: float = 1e-4, shape: Tuple[int, ...] = (), device="cpu"):
+        """
+        https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+        """
+        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
+        self.var = torch.ones(shape, dtype=torch.float32, device=device)
+        self.count = epsilon
+
+    def update(self, arr):
+        #arr = arr.reshape(-1, arr.size(-1))
+        batch_mean = torch.mean(arr, dim=1)
+        batch_var = torch.var(arr, dim=1)
+        batch_count = arr.shape[1]
+        self._update_from_moments(batch_mean, batch_var, batch_count)
+
+    def _update_from_moments(self, batch_mean, batch_var, batch_count: int):
+        delta = batch_mean - self.mean
+        tot_count = self.count + batch_count
+
+        new_mean = self.mean + delta * batch_count / tot_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        m_2 = (
+            m_a
+            + m_b
+            + torch.square(delta)
+            * self.count
+            * batch_count
+            / (self.count + batch_count)
+        )
+        new_var = m_2 / (self.count + batch_count)
+
+        new_count = batch_count + self.count
+
+        self.mean = new_mean
+        self.var = new_var
+        self.count = new_count
 
 
 # def feature_importance(agent_net, buffer, n_points, v=False, scalar=False):

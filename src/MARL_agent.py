@@ -6,8 +6,9 @@ from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
 from learn import utils
 import wandb
-from rl_algos import DQN, DuelDDQN
+from rl_algos import DQN, DuelDDQN, MADDPG
 from envs.ricen import RiceN
+import learn.gradient_estimators
 
 import matplotlib.pyplot as plt
 
@@ -17,10 +18,14 @@ print(DEVICE)
 
 class MARL_agent:
     def __init__(self, model, chkpt_load_path, num_agents=1, wandb_save=False, verbose=False, reward_type="PB",
-                 max_episodes=4000, max_steps=1000, max_frames=1e5,
+                 max_episodes=2000, max_steps=800, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
-                 obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False):
+                 obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False, maddpg=False,
+                 homogeneous=False):
+
+        self.maddpg = maddpg
+        self.homogeneous = homogeneous
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -36,7 +41,8 @@ class MARL_agent:
 
         if self.model == "ays":
             self.env = AYS_Environment(num_agents=self.num_agents, reward_type=self.reward_type, max_steps=max_steps,
-                                       gamma=self.gamma, obs_type=self.obs_type, trade_actions=trade_actions)
+                                       gamma=self.gamma, obs_type=self.obs_type, trade_actions=trade_actions,
+                                       homogeneous=self.homogeneous)
         elif self.model == "rice-n":
             self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
                              max_steps=max_steps, discount=self.gamma)
@@ -47,7 +53,9 @@ class MARL_agent:
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        self.max_episodes = max_episodes
+        print("Random Seed : {}".format(seed))
+
+        self.max_episodes = 2000  # max_episodes
         self.max_steps = max_steps
         self.max_frames = max_frames
         self.max_epochs = max_epochs
@@ -81,6 +89,8 @@ class MARL_agent:
 
         # self.agent_str = "DQN"
         self.agent_str = "DuelDDQN"
+        if self.maddpg:
+            self.agent_str = "MADDPG"
 
         self.chkpt_load = chkpt_load
         self.chkpt_load_path = chkpt_load_path
@@ -105,14 +115,30 @@ class MARL_agent:
         self.rational_const = 0.1  # TODO tweak this param as well for rationality amount
         print("Rational behaviour: {}".format(self.rational))
 
+        self.gradient_estimator = learn.gradient_estimators.STGS(1.0)
+
         if self.agent_str == "DQN":
             self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
         elif self.agent_str == "DuelDDQN":
             self.agent = [DuelDDQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+        elif self.agent_str == "MADDPG":
+            self.agent = MADDPG(
+                                    env=self.env,
+                                    critic_lr=3e-4,
+                                    actor_lr=3e-4,
+                                    gradient_clip=1.0,
+                                    hidden_dim_width=64,
+                                    gamma=0.95,
+                                    soft_update_size=0.01,
+                                    policy_regulariser=0.001,
+                                    gradient_estimator=self.gradient_estimator,
+                                    standardise_rewards=False,
+                                    pretrained_agents=None,
+                                )
 
         self.test_actions = test_actions
 
-    def append_data(self, episode_reward):
+    def append_data(self, episode_reward, episode):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
 
         self.data['rewards'].append(episode_reward)
@@ -134,11 +160,13 @@ class MARL_agent:
         # we log or print depending on settings
         if self.wandb_save:
             for agent in range(self.num_agents):
-                label_1 = "episode_reward_agent_" + str(agent)
-                label_2 = "moving_avg_rewards_agent_" + str(agent)
-                wandb.log({label_1: episode_reward[agent]})
-                wandb.log({label_2: self.data['moving_avg_rewards'][-1][agent][
-                    0]})
+                label_1 = "train/episode_reward_agent_" + str(agent)
+                label_2 = "train/moving_avg_rewards_agent_" + str(agent)
+                # wandb.log({label_1: episode_reward[agent], "train/episode": episode})
+                # wandb.log({label_2: self.data['moving_avg_rewards'][-1][agent][
+                #     0], "train/episode": episode})
+                wandb.log({label_1: episode_reward[agent], label_2: self.data['moving_avg_rewards'][-1][agent][
+                    0], "train/episode": episode})
 
         if self.model == 'ays':  # TODO redo this for ricen
             print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
@@ -169,14 +197,18 @@ class MARL_agent:
         self.data['frame_idx'] = self.data['episodes'] = 0
 
         if self.wandb_save:
-            wandb.init(project="ucl_diss", group=self.model,
+            wandb.init(project="ucl_diss", group="final_tests",  # group=self.model,
                        config={"reward_type": self.reward_type,
                                "observations": self.obs_type,
                                "rational": self.rational
                                })
+            wandb.define_metric("train/episode")
+            wandb.define_metric("train/*", step_metric="train/episode")
 
         if self.agent_str == "DuelDDQN":
             memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
+        elif self.agent_str == "MADDPG":
+            memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         else:
             memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
@@ -212,38 +244,56 @@ class MARL_agent:
                 for agent in range(self.num_agents):
                     self.rational_calc(agent, i)
 
-                action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
+                if self.agent_str == "MADDPG":
+                    action_n = self.agent.acts(obs_n)
+                else:
+                    action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 # step through environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
-                for agent in range(self.num_agents):
-                    # if not self.early_finish[agent]:
+                if self.agent_str == "MADDPG":
+                    # print((obs_n, action_n, reward.view(2), next_obs, done.view(2)))
+                    # print("NEW LINE HERE FAM")
+                    memory.store(
+                        obs=obs_n,
+                        acts=action_n,
+                        rwds=reward.view(2),
+                        nobs=next_obs,
+                        dones=done.view(2),
+                    )
+                    for agent in range(self.num_agents):
                         episode_reward[agent] += reward[agent]
-                        memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
-                        if len(memory[agent]) > self.batch_size:
-                            if self.agent_str == "DuelDDQN":
-                                self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
-                                sample = memory[agent].sample(self.batch_size, self.beta)
-                                loss, tds = self.agent[agent].update(
-                                    (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
-                                     sample['done']),
-                                    weights=sample['weights']
-                                )
-                                new_tds = np.abs(tds.cpu().numpy()) + 1e-6
-                                memory[agent].update_priorities(sample['indexes'], new_tds)
-                            else:
-                                sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
-                                loss, _ = self.agent[agent].update(sample)
-
-                            label = "loss_agent_" + str(agent)
-                            wandb.log({label: loss}) if self.wandb_save else None
                         if done[agent]:
                             self.early_finish[agent] = True
-                    # else:  # TODO allows another agent to carry on running even if one has reached final state
-                    #     next_state[agent] = state_n[agent].clone()
+                else:
+                    for agent in range(self.num_agents):
+                        # if not self.early_finish[agent]:
+                            episode_reward[agent] += reward[agent]
+                            memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
+                            if len(memory[agent]) > self.batch_size:
+                                if self.agent_str == "DuelDDQN":
+                                    self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
+                                    sample = memory[agent].sample(self.batch_size, self.beta)
+                                    loss, tds = self.agent[agent].update(
+                                        (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
+                                         sample['done']),
+                                        weights=sample['weights']
+                                    )
+                                    new_tds = np.abs(tds.cpu().numpy()) + 1e-6
+                                    memory[agent].update_priorities(sample['indexes'], new_tds)
+                                else:
+                                    sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
+                                    loss, _ = self.agent[agent].update(sample)
+
+                                label = "loss_agent_" + str(agent)
+                                wandb.log({label: loss}) if self.wandb_save else None
+                            if done[agent]:
+                                self.early_finish[agent] = True
+                        # else:  # TODO allows another agent to carry on running even if one has reached final state
+                        #     next_state[agent] = state_n[agent].clone()
 
                 obs_n = next_obs.clone()
                 state_n = next_state.clone()
@@ -283,7 +333,20 @@ class MARL_agent:
                 if self.model == 'rice-n':
                     fig, ax3d = create_figure_ricen(reset=True, fig3d=fig, ax3d=ax3d, top_down=self.top_down)
 
-            self.append_data(episode_reward)
+            self.append_data(episode_reward, episodes)
+
+            if self.agent_str == "MADDPG":
+                # if (not config.disable_training):
+                    for _ in range(1):
+                        sample = memory.sample()
+                        if sample is not None:
+                            self.agent.update(sample)
+                    # if config.log_grad_variance and elapsed_steps % config.log_grad_variance_interval == 0:
+                    #     for agent in maddpg.agents:
+                    #         for name, param in agent.policy.named_parameters():
+                    #             wandb.log({
+                    #                 f"{agent.agent_idx}-{name}-grad": torch.var(param.grad).item(),
+                    #             }, step=elapsed_steps)
 
         self.episode_count += self.max_episodes
 
@@ -292,15 +355,22 @@ class MARL_agent:
                           + '_obs_type=' + str(self.obs_type) + '_num_agents=' + str(self.num_agents) \
                           + '_episodes=' + str(self.episode_count)
         tot_dict = {}
-        for agent in range(self.num_agents):
-            tot_dict['agent_' + str(agent) + '_target_state_dict'] = self.agent[agent].target_net.state_dict()
-            tot_dict['agent_' + str(agent) + '_policy_state_dict'] = self.agent[agent].policy_net.state_dict()
-            tot_dict['agent_' + str(agent) + '_optimiser_state_dict'] = self.agent[agent].optimizer.state_dict()
-        tot_dict['episode_count'] = self.episode_count
-        if not os.path.exists(chkpt_save_path):
-            os.makedirs(chkpt_save_path)
-        torch.save(tot_dict,
-                   chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
+        if self.agent_str == "MADDPG":
+            chkpt_save_path += '_MADDPG'
+            if not os.path.exists(chkpt_save_path):
+                os.makedirs(chkpt_save_path)
+            torch.save(self.agent.agents,
+                       chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
+        else:
+            for agent in range(self.num_agents):
+                tot_dict['agent_' + str(agent) + '_target_state_dict'] = self.agent[agent].target_net.state_dict()
+                tot_dict['agent_' + str(agent) + '_policy_state_dict'] = self.agent[agent].policy_net.state_dict()
+                tot_dict['agent_' + str(agent) + '_optimiser_state_dict'] = self.agent[agent].optimizer.state_dict()
+            tot_dict['episode_count'] = self.episode_count
+            if not os.path.exists(chkpt_save_path):
+                os.makedirs(chkpt_save_path)
+            torch.save(tot_dict,
+                       chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
 
         for agent in range(self.num_agents):
             success_rate = np.stack(self.data["final_point"])[:, agent].tolist().count("GREEN_FP") / self.data[

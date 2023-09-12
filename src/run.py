@@ -7,7 +7,8 @@ def main(args):
                             model=args.model, test_actions=args.test_actions, top_down=args.top_down,
                             chkpt_load=args.chkpt_load, chkpt_load_path=args.chkpt_load_path,
                             reward_type=args.reward_type, obs_type=args.observation_type, load_multi=args.load_multi,
-                            rational=args.rationality, trade_actions=args.trade_actions)
+                            rational=args.rationality, trade_actions=args.trade_actions, maddpg=args.maddpg,
+                            homogeneous=args.homogeneous, seed=args.random_seed)
 
     marl_agent.training_run()
     # marl_agent.env.test_reward_functions()
@@ -15,13 +16,19 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--animation', default=False)
-    parser.add_argument('--animation', default=True)
+    parser.add_argument('--animation', default=False)
+    # parser.add_argument('--animation', default=True)
     parser.add_argument('--top_down', default=False)
     # parser.add_argument('--top_down', default=True)
 
     # parser.add_argument('--wandb_save', default=False)
     parser.add_argument('--wandb_save', default=True)
+
+    parser.add_argument('--maddpg', default=False)
+    # parser.add_argument('--maddpg', default=True)
+
+    # parser.add_argument('--homogeneous', default=False)
+    parser.add_argument('--homogeneous', default=True)
 
     parser.add_argument('--chkpt_load', default=False)
     # parser.add_argument('--chkpt_load', default=True)
@@ -29,36 +36,44 @@ if __name__ == "__main__":
     parser.add_argument('--load_multi', default=False)
     # parser.add_argument('--load_multi', default=True)
 
+    # parser.add_argument('--reward_type', default=["PB"])
     # parser.add_argument('--reward_type', default=["PB_new"])
     # parser.add_argument('--reward_type', default=["max_Y"])
     # parser.add_argument('--reward_type', default=["max_A"])
-    # parser.add_argument('--reward_type', default=["PB", "PB"])
-    # parser.add_argument('--reward_type', default=["PB", "max_Y"])
+    parser.add_argument('--reward_type', default=["PB", "PB"])
+    # parser.add_argument('--reward_type', default=["PB", "max_A"])
     # parser.add_argument('--reward_type', default=["PB_new", "max_Y"])
+    # parser.add_argument('--reward_type', default=["PB_new", "max_A"])
     # parser.add_argument('--reward_type', default=["PB_new_new", "max_Y"])
+    # parser.add_argument('--reward_type', default=["PB_new_new", "max_A"])
     # parser.add_argument('--reward_type', default=["PB_new_new_new", "max_Y"])
-    parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_Y"])
+    # parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_Y"])
+    # parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_A"])
     # parser.add_argument('--reward_type', default=["PB", "max_E"])
     # parser.add_argument('--reward_type', default="posi_negi_PB")
     # parser.add_argument('--reward_type', default="cap_PB")
     # parser.add_argument('--reward_type', default="carbon_reduc")
     # parser.add_argument('--reward_type', default="emission_reduc")
 
-    # parser.add_argument('--observation_type', default="agent_only")
-    parser.add_argument('--observation_type', default="all_shared")
+    parser.add_argument('--observation_type', default="agent_only")
+    # parser.add_argument('--observation_type', default="all_shared")
 
     parser.add_argument('--rationality', default=[True, True])
     # parser.add_argument('--rationality', default=[True])
     # parser.add_argument('--rationality', default=[False])
 
-    # parser.add_argument('--trade_actions', default=False)  # TODO update action space get params (done), also maybe should update the observations or something maybe (need to do)
-    parser.add_argument('--trade_actions', default=True)
+    parser.add_argument('--trade_actions', default=False)  # TODO update action space get params (done), also maybe should update the observations or something maybe (need to do)
+    # parser.add_argument('--trade_actions', default=True)
 
     parser.add_argument('--test_actions', default=False)
     # parser.add_argument('--test_actions', default=True)
     parser.add_argument('--model', type=str, default="ays")
     # parser.add_argument('--model', type=str, default="rice-n")
     parser.add_argument('--num_agents', type=int, default=2)
+
+    # parser.add_argument('--random_seed', type=int, default=42)
+    # parser.add_argument('--random_seed', type=int, default=15)
+    parser.add_argument('--random_seed', type=int, default=98)
 
     arguments = parser.parse_args()
     main(arguments)

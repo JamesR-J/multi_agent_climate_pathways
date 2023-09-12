@@ -80,7 +80,7 @@ class AYS_Environment(Env):
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=2, obs_type='all_agents', trade_actions=False):
+                 plot_progress=False, num_agents=2, obs_type='all_agents', trade_actions=False, homogeneous=False):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -161,6 +161,8 @@ class AYS_Environment(Env):
 
         self.old_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
+        self.homogeneous = homogeneous
+
     def step(self, action: int):
 
         next_t = self.t + self.dt
@@ -181,14 +183,20 @@ class AYS_Environment(Env):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            if not self._inside_A_pb(agent):  # TODO maybe adjust this so insideA_PB used for sigle agent and the other for both? but then if both agents outside the y pb then the current thing would end but this one would not, hmmmm maybe test it ya know
-            # if not self._inside_planetary_boundaries(agent):
-                self.final_state[agent] = True
+            if self.reward_type[agent] == "PB":
+                if not self._inside_planetary_boundaries(agent):
+                    self.final_state[agent] = True
+            else:
+                if not self._inside_A_pb(agent):
+                    self.final_state[agent] = True
+
+        # if torch.any(self.final_state):  # TODO testing if ending if one agent hits a PB then it cancels
+        #     self.final_state = torch.tensor([True]).repeat(self.num_agents, 1)
 
         if torch.all(self.final_state):
             for agent in range(self.num_agents):
                 if self.trade_actions:
-                    if self.reward_type[agent] == "PB" or self.reward_type[agent] == "PB_new" or self.reward_type[agent] == "policy_cost":  # TODO this should only be for trade actions
+                    if self.reward_type[agent] == "PB" or self.reward_type[agent] == "PB_new" or self.reward_type[agent] == "PB_new_new" or self.reward_type[agent] == "PB_new_new_new" or self.reward_type[agent] == "PB_new_new_new_new" or self.reward_type[agent] == "policy_cost":  # TODO this should only be for trade actions
                         e = self.state[agent, 0]
                         y = self.state[agent, 1]
                         a = self.state[agent, 2]
@@ -250,7 +258,7 @@ class AYS_Environment(Env):
         elif self.obs_type == 'all_shared' and not self.trade_actions:
             mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 20]).repeat(self.num_agents, 1)), dim=1).flatten().repeat(self.num_agents, 1)
             self.observation_space = torch.cat((torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1), mid), dim=1)
-        elif self.obs_type == 'all_shared' and not self.trade_actions:
+        elif self.obs_type == 'all_shared' and self.trade_actions:
             mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 20]).repeat(self.num_agents, 1)), dim=1).flatten().repeat(self.num_agents, 1)
             self.observation_space = torch.cat((torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1), mid, torch.tensor([0.0] * self.num_agents).repeat(self.num_agents, 1)), dim=1)
 
@@ -318,12 +326,12 @@ class AYS_Environment(Env):
             # sys.exit()
 
             if self._inside_A_pb(agent):
-                # self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])  # unweighted
-                self.reward[agent] = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
+                self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])  # unweighted
+                # self.reward[agent] = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
             else:
                 self.reward[agent] = 0.0
 
-        def reward_distance_PB_new_new_new(agent, action=0):
+        def reward_distance_PB_new_new_new(agent, action=0):  # TODO this one is bad probs can remove it
             self.reward[agent] = 0.0
 
             if self._inside_A_pb(agent):
@@ -332,7 +340,7 @@ class AYS_Environment(Env):
                 new_reward = 0.0
 
             if self.old_reward[agent] > new_reward:
-                self.reward[agent] = -(torch.abs(self.old_reward[agent] - new_reward) ** 2)  # TODO maybe try without squaring both values here so its exponential gains
+                self.reward[agent] = -(torch.abs(self.old_reward[agent] - new_reward) ** 2)
             elif self.old_reward[agent] < new_reward:
                 self.reward[agent] = torch.abs(self.old_reward[agent] - new_reward) ** 2
             else:
@@ -349,7 +357,8 @@ class AYS_Environment(Env):
             self.reward[agent] = 0.0
 
             if self._inside_A_pb(agent):
-                new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
+                # new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
+                new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
             else:
                 new_reward = 0.0
 
@@ -555,9 +564,11 @@ class AYS_Environment(Env):
             const_val = self.state[0, 0]
             self.state[:, 0] = const_val
 
-            # self.state[:, 2] = 0.2  # TODO just trying to force it lower idk but this does not work defo
-
-            # print(self.state)
+            # homogeneous (comment out below if want heterogeneous)
+            if self.homogeneous:
+                all_equal = (self.state == self.state[0]).all()
+                if not all_equal:
+                    self.state[:] = self.state[0]
 
             assert torch.allclose(self.state[:, 0], const_val), "First column values are not equal."
 
