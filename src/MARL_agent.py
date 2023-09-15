@@ -22,10 +22,12 @@ class MARL_agent:
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
                  obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False, maddpg=False,
-                 homogeneous=False):
+                 homogeneous=False, rational_choice="2nd_best"):
 
         self.maddpg = maddpg
         self.homogeneous = homogeneous
+
+        print("Homogeneous : {}".format(self.homogeneous))
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -107,6 +109,7 @@ class MARL_agent:
             epsilon = 1.0
 
         self.rational = rational
+        self.rational_choice = rational_choice
 
         assert self.num_agents == len(self.rational), "Rationality definition does not match no. of agents"
 
@@ -114,13 +117,15 @@ class MARL_agent:
         self.irrational_end = [0] * self.num_agents
         self.rational_const = 0.1  # TODO tweak this param as well for rationality amount
         print("Rational behaviour: {}".format(self.rational))
+        if not all(self.rational):
+            print("Rational choice: {}".format(self.rational_choice))
 
         self.gradient_estimator = learn.gradient_estimators.STGS(1.0)
 
         if self.agent_str == "DQN":
-            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
         elif self.agent_str == "DuelDDQN":
-            self.agent = [DuelDDQN(self.state_dim, self.action_dim, epsilon=epsilon) for _ in range(self.num_agents)]
+            self.agent = [DuelDDQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
         elif self.agent_str == "MADDPG":
             self.agent = MADDPG(
                                     env=self.env,
@@ -197,7 +202,8 @@ class MARL_agent:
         self.data['frame_idx'] = self.data['episodes'] = 0
 
         if self.wandb_save:
-            wandb.init(project="ucl_diss", group="final_tests",  # group=self.model,
+            # wandb.init(project="ucl_diss", group=self.model,
+            wandb.init(project="ucl_diss", group="final_tests",
                        config={"reward_type": self.reward_type,
                                "observations": self.obs_type,
                                "rational": self.rational
@@ -353,7 +359,8 @@ class MARL_agent:
         # add checkpointing here
         chkpt_save_path = './checkpoints/env=' + str(self.model) + '_reward_type=' + str(self.reward_type) \
                           + '_obs_type=' + str(self.obs_type) + '_num_agents=' + str(self.num_agents) \
-                          + '_episodes=' + str(self.episode_count)
+                          + '_homogeneous=' + str(self.homogeneous) + '_rationality=' + str(self.rational) \
+                          + '_rational_choice=' + str(self.rational_choice) + '_episodes=' + str(self.episode_count)
         tot_dict = {}
         if self.agent_str == "MADDPG":
             chkpt_save_path += '_MADDPG'

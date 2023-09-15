@@ -57,7 +57,7 @@ class AYS_Environment(Env):
     action_space_number = np.arange(len(action_space))
     # AYS example from Kittel et al. 2017:
     tau_A = 50  # carbon decay - single val
-    tau_S = 50  # renewable knowledge stock decay - probs single val
+    tau_S = 50  # renewable knowledge stock decay - multi val
     beta = 0.03  # economic output growth - multi val
     beta_LG = 0.015  # halved economic output growth - multi val
     eps = 147  # energy efficiency param - single val
@@ -65,7 +65,7 @@ class AYS_Environment(Env):
     theta = beta / (950 - A_offset)  # beta / ( 950 - A_offset(=350) )
     # theta = 8.57e-5
 
-    rho = 2.  # renewable knowledge learning rate - single val?
+    rho = 2.  # renewable knowledge learning rate - multi val
     sigma = 4e12  # break even knowledge - multi val
     sigma_ET = sigma * 0.5 ** (1 / rho)  # can't remember the change, but it's somewhere - multi val
     # sigma_ET = 2.83e12
@@ -187,11 +187,17 @@ class AYS_Environment(Env):
                 if not self._inside_planetary_boundaries(agent):
                     self.final_state[agent] = True
             else:
-                if not self._inside_A_pb(agent):
+                if not self._inside_A_pb(agent):  # TODO is this true for the PB_extension one if look at that
                     self.final_state[agent] = True
 
-        # if torch.any(self.final_state):  # TODO testing if ending if one agent hits a PB then it cancels
-        #     self.final_state = torch.tensor([True]).repeat(self.num_agents, 1)
+        # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state
+        #     if torch.any(self.final_state):  # TODO testing if ending if one agent hits a PB then it cancels
+        #         for agent in range(self.num_agents):
+        #             if self.final_state[agent]:
+        #                 if self.green_fixed_point(agent):
+        #                     pass
+        #                 else:
+        #                     self.final_state = torch.tensor([True]).repeat(self.num_agents, 1)
 
         if torch.all(self.final_state):
             for agent in range(self.num_agents):
@@ -221,6 +227,7 @@ class AYS_Environment(Env):
         elif self.obs_type == "all_shared" and not self.trade_actions:
             result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
             result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)  # 1 for each agent and then a overall, and yse for each agent
+            # result = torch.cat((ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)  # a overall, and yse for each agent
             return result, ode_int_output
 
         elif self.obs_type == "all_shared" and self.trade_actions:
@@ -247,9 +254,9 @@ class AYS_Environment(Env):
         self.state = self.current_state_region_StartPoint()
 
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
-        self.t = self.t0  # TODO reinstate reset for observation_space
+        self.t = self.t0
 
-        self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
+        self.reward_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
 
         self.old_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
@@ -357,8 +364,8 @@ class AYS_Environment(Env):
             self.reward[agent] = 0.0
 
             if self._inside_A_pb(agent):
-                # new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
-                new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
+                new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
+                # new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
             else:
                 new_reward = 0.0
 
@@ -374,8 +381,8 @@ class AYS_Environment(Env):
         def reward_distance_Y(agent, action=0):
             self.reward[agent] = 0.
 
-            # self.reward[agent] = torch.abs(self.reward_space[agent, 1] - self.PB_3[agent, 1])  # max y
-            self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])  # max a and y
+            self.reward[agent] = torch.abs(self.reward_space[agent, 1] - self.PB_3[agent, 1])  # max y
+            # self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])  # max a and y
 
             # if self._inside_planetary_boundaries(agent):  # TODO do we need to check even in PB as we don't care about PBs
             #     self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])
@@ -502,6 +509,18 @@ class AYS_Environment(Env):
         elif torch.abs(e - self.brown_fp[agent, 0]) < self.final_radius[agent]\
                 and torch.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent]\
                 and torch.abs(a - self.brown_fp[agent, 2]) < self.final_radius[agent]:
+            return True
+        else:
+            return False
+
+    def green_fixed_point(self, agent):
+        e = self.state[agent, 0]
+        y = self.state[agent, 1]
+        a = self.state[agent, 2]
+
+        if torch.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
+                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+                and torch.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
             return False

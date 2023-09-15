@@ -150,7 +150,7 @@ class critic_agent(abstract_agent):
 
 class DQN:
     def __init__(self, state_dim, action_dim, gamma=0.99, lr=0.002357, tau=0.0877, rho=0.7052, epsilon=1., polyak=False,
-                 decay=0.5, step_decay=50000):
+                 decay=0.5, step_decay=50000, rational_choice="2nd_best"):
         self.target_net = NN(state_dim, action_dim).to(DEVICE)
         self.policy_net = NN(state_dim, action_dim).to(DEVICE)
 
@@ -172,6 +172,8 @@ class DQN:
         self.rho = rho
         self.epsilon = lambda t: 0.01 + epsilon / (t ** self.rho)
 
+        self.rational_choice = rational_choice
+
     @torch.no_grad()
     def get_action(self, state: np.ndarray, testing=False, rational=True):
         self.t += 1
@@ -184,8 +186,13 @@ class DQN:
                 max_ind = np.argmax(q_values)
                 q_dict = dict(enumerate(q_values))
                 q_dict.pop(max_ind)
-                # return list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))]  # 2nd best q value
-                return np.random.choice(list(q_dict.keys()))  # random choice but not the best
+                if self.rational_choice == "2nd_best":
+                    return list(q_dict.keys())[list(q_dict.values()).index(max(list(q_dict.values())))]
+                elif self.rational_choice == "random":
+                    return np.random.choice(list(q_dict.keys()))
+                else:
+                    print("INCORRECT RATIONAL CHOICE")
+                    sys.exit()
 
         else:
             return np.random.choice(self.action_size)
