@@ -11,7 +11,7 @@ import numpy as np
 sns.set(font_scale=0.8)
 
 
-def read_csv(filename, multi_agent):
+def read_csv(filename, multi_agent, multi_with_single_agent):
     df1 = pd.read_csv("./wandb_csv_data/" + filename)
     if multi_agent:
         base_filename, extension = filename.rsplit('.', 1)
@@ -32,7 +32,12 @@ def read_csv(filename, multi_agent):
         interlaced_slices = []
         for slice_df1, slice_df2 in zip(slices_df1, slices_df2):
             interlaced_slices.extend([slice_df1, slice_df2])
-        final_df = pd.concat(interlaced_slices, axis=1)
+
+        if multi_with_single_agent:
+            final_df = pd.concat(interlaced_slices, axis=1)
+            final_df = pd.concat([final_df, df1.iloc[:, -9:]], axis=1)
+        else:
+            final_df = pd.concat(interlaced_slices, axis=1)
 
         return final_df
 
@@ -90,20 +95,24 @@ def moving_avg_graph(df, multi_agent, save_name, title, true_labels, labels):
 
 
 if __name__ == "__main__":
-    file_name = "homo_agent_only_vs_all_shared_agent_0.csv"
+    file_name = "irrational_2nd_agent_only_vs_all_shared_one_stop_agent_0.csv"
     # multi_agent = False
     multi_agent = True
-    save_name = "homo_agent_only_vs_all_shared"
+    # multi_with_single_agent = False
+    multi_with_single_agent = True
+    # save_name = "irrational_2nd_agent_only_vs_all_shared_both_stop"
+    save_name = file_name[:-12]
     title = "Moving Average Tings"
     true_labels = False
     # true_labels = True
-    labels = ["All Shared Agent 0",
-              "All Shared Agent 1",
-              "Agent Only Agent 0",
-              "Agent Only Agent 1"
+    labels = ["All Shared Rational Agent 0",
+              "All Shared Rational Agent 1",
+              "Agent Only Rational Agent 0",
+              "Agent Only Rational Agent 1",
+              "Irrational Single Agent"
               ]
 
-    df = read_csv(file_name, multi_agent)
+    df = read_csv(file_name, multi_agent, multi_with_single_agent)
     moving_avg_graph(df, multi_agent, save_name, title, true_labels, labels)
 
 

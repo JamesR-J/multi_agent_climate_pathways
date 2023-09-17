@@ -10,8 +10,10 @@ def main(args):
                             rational=args.rationality, trade_actions=args.trade_actions, maddpg=args.maddpg,
                             homogeneous=args.homogeneous, seed=args.random_seed, rational_choice=args.rational_choice)
 
-    marl_agent.training_run()
+    marl_agent.pretrained_agents_load()
+    # marl_agent.training_run()
     # marl_agent.env.test_reward_functions()
+    marl_agent.plot_trajectory('red')
 
 
 if __name__ == "__main__":
@@ -21,8 +23,8 @@ if __name__ == "__main__":
     parser.add_argument('--top_down', default=False)
     # parser.add_argument('--top_down', default=True)
 
-    # parser.add_argument('--wandb_save', default=False)
-    parser.add_argument('--wandb_save', default=True)
+    parser.add_argument('--wandb_save', default=False)
+    # parser.add_argument('--wandb_save', default=True)
 
     parser.add_argument('--maddpg', default=False)
     # parser.add_argument('--maddpg', default=True)
@@ -30,18 +32,18 @@ if __name__ == "__main__":
     parser.add_argument('--homogeneous', default=False)
     # parser.add_argument('--homogeneous', default=True)
 
-    parser.add_argument('--chkpt_load', default=False)
-    # parser.add_argument('--chkpt_load', default=True)
-    parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB']_obs_type=agent_only_num_agents=1_episodes=5000/end_time=02-08-2023_19-08-49.tar")
-    parser.add_argument('--load_multi', default=False)
-    # parser.add_argument('--load_multi', default=True)
+    # parser.add_argument('--chkpt_load', default=False)
+    parser.add_argument('--chkpt_load', default=True)
+    parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_01-37-04.tar")
+    # parser.add_argument('--load_multi', default=False)
+    parser.add_argument('--load_multi', default=True)
 
     # parser.add_argument('--reward_type', default=["PB"])
-    # parser.add_argument('--reward_type', default=["PB_new"])
-    # parser.add_argument('--reward_type', default=["max_Y"])
+    # parser.add_argument('--reward_type', default=["PB_new_new_new_new"])
     # parser.add_argument('--reward_type', default=["max_A"])
+    # parser.add_argument('--reward_type', default=["max_Y"])
     parser.add_argument('--reward_type', default=["PB", "PB"])
-    # parser.add_argument('--reward_type', default=["PB", "max_A"])
+    # parser.add_argument('--reward_type', default=["PB", "max_Y"])
     # parser.add_argument('--reward_type', default=["PB_new", "max_Y"])
     # parser.add_argument('--reward_type', default=["PB_new", "max_A"])
     # parser.add_argument('--reward_type', default=["PB_new_new", "max_Y"])
@@ -51,11 +53,11 @@ if __name__ == "__main__":
     # parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_A"])
     # parser.add_argument('--reward_type', default=["PB", "max_E"])
 
-    # parser.add_argument('--observation_type', default="agent_only")
-    parser.add_argument('--observation_type', default="all_shared")
+    parser.add_argument('--observation_type', default="agent_only")
+    # parser.add_argument('--observation_type', default="all_shared")
 
-    # parser.add_argument('--rationality', default=[True, True])
-    parser.add_argument('--rationality', default=[True, False])
+    parser.add_argument('--rationality', default=[True, True])
+    # parser.add_argument('--rationality', default=[True, False])
     # parser.add_argument('--rationality', default=[True])
     # parser.add_argument('--rationality', default=[False])
 

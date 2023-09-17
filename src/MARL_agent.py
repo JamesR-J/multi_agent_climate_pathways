@@ -143,6 +143,40 @@ class MARL_agent:
 
         self.test_actions = test_actions
 
+    def plot_trajectory(self, colour, start_state=None, steps=800, fname=None, axes=None, fig=None):
+        """To plot trajectories of the agent"""
+        # state = self.env.reset_for_state(start_state)
+        for episode in range(5):
+            print("EPISODE")
+            state_n, obs_n = self.env.reset()
+            learning_progress = []
+            actions = []
+            rewards = []
+            for step in range(steps):
+                # list_state, list_reward_space = self.env.get_plot_state_list()
+
+                # take recommended action
+                if self.agent_str == "MADDPG":
+                    action_n = self.agent.acts(obs_n)
+                else:
+                    action_n = torch.tensor(
+                        [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for agent in
+                         range(self.num_agents)])
+
+                # Do the new chosen action in Environment
+                next_state, reward, done, next_obs = self.env.step(action_n)
+                actions.append(action_n)
+                rewards.append(reward)
+                learning_progress.append([state_n, action_n, reward])
+
+                obs_n = next_obs.clone()
+                state_n = next_state.clone()
+                if torch.all(done):
+                    break
+            fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=axes, fname='./' + str(episode) + '.png', colour=colour)
+
+        return actions, rewards
+
     def append_data(self, episode_reward, episode):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
 
@@ -188,6 +222,19 @@ class MARL_agent:
                 if step == self.irrational_end[agent]:
                     self.rational_ep[agent] = True
 
+    def pretrained_agents_load(self):
+        if self.chkpt_load:
+            checkpoint = torch.load(self.chkpt_load_path)
+            for agent in range(self.num_agents):
+                if self.load_multi:
+                    chkpt_string = 'agent_0'
+                else:
+                    chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
+                self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
+                self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
+                self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
+            self.episode_count = checkpoint['episode_count']
+
     def training_run(self):
 
         if self.animation:
@@ -217,18 +264,6 @@ class MARL_agent:
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         else:
             memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
-
-        if self.chkpt_load:
-            checkpoint = torch.load(self.chkpt_load_path)
-            for agent in range(self.num_agents):
-                if self.load_multi:
-                    chkpt_string = 'agent_0'
-                else:
-                    chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
-                self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
-                self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
-                self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
-            self.episode_count = checkpoint['episode_count']
 
         for episodes in range(self.max_episodes):
 
@@ -261,8 +296,6 @@ class MARL_agent:
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
                 if self.agent_str == "MADDPG":
-                    # print((obs_n, action_n, reward.view(2), next_obs, done.view(2)))
-                    # print("NEW LINE HERE FAM")
                     memory.store(
                         obs=obs_n,
                         acts=action_n,

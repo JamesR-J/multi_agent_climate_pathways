@@ -183,7 +183,7 @@ class AYS_Environment(Env):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            if self.reward_type[agent] == "PB":
+            if self.reward_type[agent] == "PB":  #  or self.reward_type[agent] == "PB_new_new_new_new":
                 if not self._inside_planetary_boundaries(agent):
                     self.final_state[agent] = True
             else:
@@ -365,7 +365,11 @@ class AYS_Environment(Env):
 
             if self._inside_A_pb(agent):
                 new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
-                # new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
+            #     #  new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
+
+            # if self._inside_planetary_boundaries(agent):
+            #     new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])  # original one lol
+
             else:
                 new_reward = 0.0
 
@@ -397,7 +401,7 @@ class AYS_Environment(Env):
         def reward_distance_A(agent, action=0):
             self.reward[agent] = 0.
 
-            self.reward[agent] = torch.abs(self.reward_space[agent, 0] - self.PB_3[agent, 0])  # max a
+            self.reward[agent] = torch.abs(self.reward_space[agent, 0] - self.PB_3[agent, 0]) / 2  # max a
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
@@ -658,37 +662,93 @@ class AYS_Environment(Env):
 
         return parameter_matrix
 
-    # def plot_run(self, learning_progress, fig, axes, colour, fname=None,):
-    #     timeStart = 0
-    #     intSteps = 2  # integration Steps
-    #     dt = 1
-    #     sim_time_step = np.linspace(timeStart, self.dt, intSteps)
-    #     if axes is None:
-    #         fig, ax3d = create_figure_ays()
-    #     else:
-    #         ax3d = axes
-    #     start_state = learning_progress[0][0]
-    #
-    #     for state_action in learning_progress:
-    #         state = state_action[0]
-    #         action = state_action[1]
-    #         parameter_list = self._get_parameters(action)
-    #         traj_one_step = odeint(ays.AYS_rescaled_rhs, state, sim_time_step, args=parameter_list[0])
-    #         # Plot trajectory
-    #         my_color = ays_plot.color_list[action]
-    #         ax3d.plot3D(xs=traj_one_step[:, 0], ys=traj_one_step[:, 1], zs=traj_one_step[:, 2],
-    #                     color=colour, alpha=0.3, lw=3)
-    #
-    #     # Plot from startpoint only one management option to see if green fix point is easy to reach:
-    #     # self.plot_current_state_trajectories(ax3d)
-    #     ays_plot.plot_hairy_lines(20, ax3d)
-    #
-    #     final_state = self.which_final_state().name
-    #     if fname is not None:
-    #         plt.savefig(fname)
-    #     #plt.show()
-    #
-    #     return fig, ax3d
+    def get_plot_state_list(self):
+        return self.state, self.reward_space
+
+    def plot_run(self, learning_progress, fig, axes=None, colour=None, fname=None,):
+        timeStart = 0
+        intSteps = 2  # integration Steps
+        dt = 1
+        sim_time_step = np.linspace(timeStart, self.dt, intSteps)
+        if axes is None:
+            fig, ax3d = create_figure_ays(top_down=False)
+        else:
+            ax3d = axes
+        start_state = learning_progress[0][0]
+
+        x_values = [[] for _ in range(self.num_agents)]
+        y_values = [[] for _ in range(self.num_agents)]
+        z_values = [[] for _ in range(self.num_agents)]
+        colours = plt.cm.brg(np.linspace(0, 1, self.num_agents))
+        colour_list = ['red', 'blue', 'green', 'yellow']
+
+        time = timeStart
+
+        state_list = torch.rand(2, 2, 3)
+        # state_list.append(start_state)
+
+        for ind, state_action in enumerate(learning_progress):
+            state_n = state_action[0]
+            action_n = state_action[1]
+
+            if ind == 0:
+                state_list[0] = state_n
+
+            else:
+                state_list[1] = state_n
+
+                input_ting = state_list.clone()
+                reshaped_tensor = input_ting.view(2, -1, 3).permute(1, 0, 2)
+
+
+            # parameter_matrix = self._get_parameters(action_n)
+            #
+            # parameter_vector = parameter_matrix.flatten()
+            # parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
+            #
+            # ode_input = torch.cat((state_n[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
+            # # ode_input = state_n
+            #
+            # traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ode_input.flatten(), [time, time+dt],
+            #                        args=tuple(parameter_vector.tolist()), mxstep=50000)
+            #
+            # # print(traj_one_step)
+            # # print(torch.tensor(traj_one_step).view(2, -1, 4).permute(1, 0, 2))
+            # # print(torch.tensor(traj_one_step[1]).view(-1, 4))
+            # # sys.exit()
+            #
+            # traj_one_step = torch.tensor(traj_one_step).view(2, -1, 4).permute(1, 0, 2)
+            #
+            # print(ode_input)
+            # print(traj_one_step)
+            # print("NEW ONE MATE")
+
+            # Plot trajectory
+                for agent in range(self.num_agents):
+                    my_colour = colour_list[action_n[agent]]
+                    # ax3d.plot3D(xs=traj_one_step[agent, :, 3].tolist(), ys=traj_one_step[agent, :, 1].tolist(), zs=traj_one_step[agent, :, 0].tolist(),
+                    ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(), zs=reshaped_tensor[agent, :, 2].tolist(),
+                                color=my_colour, alpha=0.3, lw=3,  label="Agent : {}".format(agent))
+
+                state_list[0] = state_n
+
+            time += dt
+
+
+
+        # Plot from startpoint only one management option to see if green fix point is easy to reach:
+        # self.plot_current_state_trajectories(ax3d)
+
+
+        # ays_plot.plot_hairy_lines(20, ax3d)
+
+        # final_state = self.which_final_state().name
+        # if fname is not None:
+        #     plt.savefig(fname)
+        # plt.show()
+        plt.savefig(fname)
+
+        return fig, ax3d
 
     # def observed_states(self):
     #     return self.dimensions
