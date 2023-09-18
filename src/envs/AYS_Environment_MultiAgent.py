@@ -401,7 +401,7 @@ class AYS_Environment(Env):
         def reward_distance_A(agent, action=0):
             self.reward[agent] = 0.
 
-            self.reward[agent] = torch.abs(self.reward_space[agent, 0] - self.PB_3[agent, 0]) / 2  # max a
+            self.reward[agent] = torch.abs(self.reward_space[agent, 0] - self.PB_3[agent, 0]) / 8  # max a
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
@@ -745,7 +745,7 @@ class AYS_Environment(Env):
         # final_state = self.which_final_state().name
         # if fname is not None:
         #     plt.savefig(fname)
-        # plt.show()
+        plt.show()
         plt.savefig(fname)
 
         return fig, ax3d

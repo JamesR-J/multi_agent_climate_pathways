@@ -146,7 +146,7 @@ class MARL_agent:
     def plot_trajectory(self, colour, start_state=None, steps=800, fname=None, axes=None, fig=None):
         """To plot trajectories of the agent"""
         # state = self.env.reset_for_state(start_state)
-        for episode in range(5):
+        for episode in range(1):  # 25):
             print("EPISODE")
             state_n, obs_n = self.env.reset()
             learning_progress = []
@@ -173,7 +173,7 @@ class MARL_agent:
                 state_n = next_state.clone()
                 if torch.all(done):
                     break
-            fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=axes, fname='./' + str(episode) + '.png', colour=colour)
+            fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
 
         return actions, rewards
 
