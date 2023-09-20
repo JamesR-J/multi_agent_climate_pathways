@@ -100,8 +100,9 @@ class MARL_agent:
         self.episode_count = 0
 
         if self.chkpt_load:
-            self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
-            self.max_episodes += self.episode_count
+            if not self.maddpg:
+                self.episode_count = torch.load(self.chkpt_load_path)['episode_count']  # TODO add this episode count to the maddpg save file
+                self.max_episodes += self.episode_count
 
         if self.episode_count > 0:
             epsilon = 0.99
@@ -146,36 +147,107 @@ class MARL_agent:
     def plot_trajectory(self, colour, start_state=None, steps=800, fname=None, axes=None, fig=None):
         """To plot trajectories of the agent"""
         # state = self.env.reset_for_state(start_state)
-        for episode in range(1):  # 25):
-            print("EPISODE")
-            state_n, obs_n = self.env.reset()
-            learning_progress = []
-            actions = []
-            rewards = []
-            for step in range(steps):
-                # list_state, list_reward_space = self.env.get_plot_state_list()
+        for episode in range(55):
+                state_n, obs_n = self.env.reset()
+                learning_progress = []
+                actions = []
+                rewards = []
+                for step in range(steps):
+                    # list_state, list_reward_space = self.env.get_plot_state_list()
 
-                # take recommended action
+                    # take recommended action
+                    if self.agent_str == "MADDPG":
+                        action_n = self.agent.acts(obs_n)
+                    else:
+                        action_n = torch.tensor(
+                            [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for agent in
+                             range(self.num_agents)])
+
+                    # Do the new chosen action in Environment
+                    next_state, reward, done, next_obs = self.env.step(action_n)
+                    actions.append(action_n)
+                    rewards.append(reward)
+                    learning_progress.append([state_n, action_n, reward])
+
+                    obs_n = next_obs.clone()
+                    state_n = next_state.clone()
+                    if torch.all(done):
+                        break
+                if episode == 52:
+                    if self.agent_str == "MADDPG":
+                        fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour, maddpg=True)
+                    else:
+                        fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
+
+        return actions, rewards
+
+    def test_agent(self, n_points=100, max_steps=800, s_default=0.5):
+        """Test the agent on different initial conditions to see if it can escape"""
+        n_points = 900
+        a_default = 0.5
+        s_default = 0.5
+        grid_size = int(np.sqrt(n_points))
+        results = np.zeros((n_points, 1))
+        # test_states = np.zeros((n_points, 3))
+        test_states = torch.zeros((n_points, self.num_agents, 3))
+        # sys.exit()
+
+        for first in range(grid_size):
+            for second in range(grid_size):
+                test_states[first * grid_size + second] = torch.tensor([[a_default, 0.45 + first * 1 / (grid_size * 10), s_default],
+                                                                        [a_default, 0.45 + second * 1 / (grid_size * 10), s_default]])
+
+        for i in range(len(test_states)):
+            state_n, obs_n = self.env.reset(start_state=test_states.clone()[i])
+            for steps in range(max_steps):
                 if self.agent_str == "MADDPG":
                     action_n = self.agent.acts(obs_n)
                 else:
                     action_n = torch.tensor(
-                        [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for agent in
+                        [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for
+                         agent in
                          range(self.num_agents)])
-
-                # Do the new chosen action in Environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
-                actions.append(action_n)
-                rewards.append(reward)
-                learning_progress.append([state_n, action_n, reward])
+                if torch.all(done):
+                    listy = []
+                    for agent in range(self.num_agents):
+                        listy.append(int(self.env.which_final_state(agent).value))
 
+                    if any(x == 2 for x in listy):
+                        results[i] = 1.0
+                    else:
+                        results[i] = 0.0
+
+                    # print("Completed {} out of {} test states.".format(i+1, len(test_states)))
+
+                    break
                 obs_n = next_obs.clone()
                 state_n = next_state.clone()
-                if torch.all(done):
-                    break
-            fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
 
-        return actions, rewards
+        # print(test_states)
+        # print(results)
+
+        # self.plot_end_state_matrix(results)
+
+        return np.mean(results == 2), results
+
+    def plot_end_state_matrix(self, results):
+        size = int(np.sqrt(len(results)))
+        fig = plt.imshow(np.flip(results.reshape(size, size), axis=0), extent=(0.45, 0.55, 0.45, 0.55), cmap='cividis')
+        plt.ylabel("Y Agent 0")
+        plt.xlabel("Y Agent 1")
+        cbar = plt.colorbar(fig)
+        cbar.set_label('Rate of Success')
+
+        ax = plt.gca()
+
+        # ax.set_yticklabels([180, 200, 220, 240, 260, 280])
+        ax.set_yticklabels([53, 55, 62, 70, 77, 85, ])
+        ax.set_xticklabels([53, 55, 62, 70, 77, 85, ])
+        ax.set_title('PC')
+        plt.tight_layout()
+        plt.show()
+        # plt.savefig(overleaf + '/pc_end_dqn.pdf', dpi=300);
 
     def append_data(self, episode_reward, episode):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
@@ -222,18 +294,33 @@ class MARL_agent:
                 if step == self.irrational_end[agent]:
                     self.rational_ep[agent] = True
 
-    def pretrained_agents_load(self):
+    def pretrained_agents_load(self, maddpg=False):
         if self.chkpt_load:
             checkpoint = torch.load(self.chkpt_load_path)
-            for agent in range(self.num_agents):
-                if self.load_multi:
-                    chkpt_string = 'agent_0'
-                else:
-                    chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
-                self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
-                self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
-                self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
-            self.episode_count = checkpoint['episode_count']
+            if maddpg:
+                self.agent = MADDPG(
+                    env=self.env,
+                    critic_lr=3e-4,
+                    actor_lr=3e-4,
+                    gradient_clip=1.0,
+                    hidden_dim_width=64,
+                    gamma=0.95,
+                    soft_update_size=0.01,
+                    policy_regulariser=0.001,
+                    gradient_estimator=self.gradient_estimator,
+                    standardise_rewards=False,
+                    pretrained_agents=checkpoint,
+                )
+            else:
+                for agent in range(self.num_agents):
+                    if self.load_multi:
+                        chkpt_string = 'agent_0'
+                    else:
+                        chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
+                    self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
+                    self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
+                    self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
+                self.episode_count = checkpoint['episode_count']
 
     def training_run(self):
 
@@ -291,6 +378,10 @@ class MARL_agent:
                     action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
+
+                for agent in range(self.num_agents):
+                    label = "action_n_agent_" + str(agent)
+                    wandb.log({label: action_n[agent]}) if self.wandb_save else None
 
                 # step through environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
