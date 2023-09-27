@@ -147,13 +147,18 @@ class MARL_agent:
     def plot_trajectory(self, colour, start_state=None, steps=800, fname=None, axes=None, fig=None):
         """To plot trajectories of the agent"""
         # state = self.env.reset_for_state(start_state)
-        for episode in range(55):
+        for episode in range(50):
                 state_n, obs_n = self.env.reset()
                 learning_progress = []
                 actions = []
                 rewards = []
+                self.rational_ep = [True] * self.num_agents
+                self.irrational_end = [0] * self.num_agents
                 for step in range(steps):
                     # list_state, list_reward_space = self.env.get_plot_state_list()
+
+                    for agent in range(self.num_agents):
+                        self.rational_calc(agent, step)
 
                     # take recommended action
                     if self.agent_str == "MADDPG":
@@ -173,11 +178,10 @@ class MARL_agent:
                     state_n = next_state.clone()
                     if torch.all(done):
                         break
-                if episode == 52:
-                    if self.agent_str == "MADDPG":
-                        fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour, maddpg=True)
-                    else:
-                        fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
+                if self.agent_str == "MADDPG":
+                    fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour, maddpg=True)
+                else:
+                    fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
 
         return actions, rewards
 
@@ -185,20 +189,46 @@ class MARL_agent:
         """Test the agent on different initial conditions to see if it can escape"""
         n_points = 900
         a_default = 0.5
+        y_default = 0.5
         s_default = 0.5
         grid_size = int(np.sqrt(n_points))
         results = np.zeros((n_points, 1))
-        # test_states = np.zeros((n_points, 3))
-        test_states = torch.zeros((n_points, self.num_agents, 3))
-        # sys.exit()
+        # test_states = torch.zeros((n_points, self.num_agents, 3))
+        test_states = torch.zeros((n_points, self.num_agents, 1))
+
+        # y
+        lower_bound = 0.35
+        upper_bound = 0.65
+
+        # epsilon
+        # lower_bound = 160-40
+        # upper_bound = 160+40
+
+        # rho
+        lower_bound = 2-1
+        upper_bound = 2+1
+
+        pointys = np.linspace(lower_bound, upper_bound, grid_size)
 
         for first in range(grid_size):
             for second in range(grid_size):
-                test_states[first * grid_size + second] = torch.tensor([[a_default, 0.45 + first * 1 / (grid_size * 10), s_default],
-                                                                        [a_default, 0.45 + second * 1 / (grid_size * 10), s_default]])
+                # test_states[first * grid_size + second] = torch.tensor(  # Y variable
+                #     [[a_default, pointys[first], s_default],
+                #      [a_default, pointys[second], s_default]])
+                # test_states[first * grid_size + second] = torch.tensor(  # S variable
+                #     [[a_default, y_default, pointys[first]],
+                #      [a_default, y_default, pointys[second]]])
+                test_states[first * grid_size + second] = torch.tensor(  # epsilon and rho variable
+                    [[pointys[first]], [pointys[second]]])
 
         for i in range(len(test_states)):
-            state_n, obs_n = self.env.reset(start_state=test_states.clone()[i])
+            # state_n, obs_n = self.env.reset(start_state=test_states.clone()[i])
+            state_n, obs_n = self.env.reset(start_state=torch.tensor([[a_default, y_default, s_default],
+                                                                      [a_default, y_default, s_default]]))
+
+            # self.env.eps = test_states.clone()[i]  # epsilon
+            self.env.rho = test_states.clone()[i]  # rho
+
             for steps in range(max_steps):
                 if self.agent_str == "MADDPG":
                     action_n = self.agent.acts(obs_n)
@@ -218,36 +248,41 @@ class MARL_agent:
                     else:
                         results[i] = 0.0
 
-                    # print("Completed {} out of {} test states.".format(i+1, len(test_states)))
-
                     break
                 obs_n = next_obs.clone()
                 state_n = next_state.clone()
 
-        # print(test_states)
-        # print(results)
+        return np.mean(results == 2), results, upper_bound, lower_bound
 
-        # self.plot_end_state_matrix(results)
-
-        return np.mean(results == 2), results
-
-    def plot_end_state_matrix(self, results):
+    def plot_end_state_matrix(self, results, upper_bound, lower_bound):
         size = int(np.sqrt(len(results)))
-        fig = plt.imshow(np.flip(results.reshape(size, size), axis=0), extent=(0.45, 0.55, 0.45, 0.55), cmap='cividis')
-        plt.ylabel("Y Agent 0")
-        plt.xlabel("Y Agent 1")
+        fig = plt.imshow(np.flip(results.reshape(size, size), axis=0), extent=(lower_bound, upper_bound, lower_bound, upper_bound), cmap='cividis')
+        # plt.ylabel("Y Agent 0")
+        # plt.xlabel("Y Agent 1")
+        # plt.ylabel("S Agent 0")
+        # plt.xlabel("S Agent 1")
+        # plt.ylabel("Energy Efficiency Agent 0")
+        # plt.xlabel("Energy Efficiency Agent 1")
+        plt.ylabel("Rho Agent 0")
+        plt.xlabel("Rho Agent 1")
+
         cbar = plt.colorbar(fig)
         cbar.set_label('Rate of Success')
 
         ax = plt.gca()
 
-        # ax.set_yticklabels([180, 200, 220, 240, 260, 280])
-        ax.set_yticklabels([53, 55, 62, 70, 77, 85, ])
-        ax.set_xticklabels([53, 55, 62, 70, 77, 85, ])
-        ax.set_title('PC')
+        ax.set_yticks([1.0, 1.5, 2.0, 2.5, 3.0])  # rho
+
+        # ax.set_xticklabels([38, 47, 57, 70, 85, 105, 130])  # y
+        # ax.set_yticklabels([38, 47, 57, 70, 85, 105, 130])
+
+        # ax.set_xticklabels([270, 334, 410, 502, 613, 752, 931])  # s
+        # ax.set_yticklabels([270, 334, 410, 502, 613, 752, 931])
+
         plt.tight_layout()
-        plt.show()
-        # plt.savefig(overleaf + '/pc_end_dqn.pdf', dpi=300);
+        # plt.show()
+        save_name = "comparing_rho_agent_ranges"
+        plt.savefig('./wandb_graphs/' + save_name + '.png', bbox_inches="tight", dpi=400)
 
     def append_data(self, episode_reward, episode):
         """We append the latest episode reward and calculate moving averages and moving standard deviations"""
@@ -418,7 +453,7 @@ class MARL_agent:
                                     sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
                                     loss, _ = self.agent[agent].update(sample)
 
-                                label = "loss_agent_" + str(agent)
+                                label = "train/loss_agent_" + str(agent)
                                 wandb.log({label: loss}) if self.wandb_save else None
                             if done[agent]:
                                 self.early_finish[agent] = True

@@ -45,9 +45,27 @@ rewards = [torch.tensor([32.1177, 582.5378]), torch.tensor([11.7752, 64.3992]), 
 concatenated = torch.stack(rewards[-50:])
 mean = torch.mean(concatenated, dim=0)
 
-print(rewards)
-print(concatenated)
-print(mean)
+# print(rewards)
+# print(concatenated)
+# print(mean)
+
+X_MID = [240, 7e13, 501.5198]
+def compactification(x, x_mid):
+    if x == 0:
+        return 0.
+    if x == np.infty:
+        return 1.
+    return x / (x + x_mid)
+
+def inv_compactification(y, x_mid):
+    if y == 0:
+        return 0.
+    if np.allclose(y, 1):
+        return np.infty
+    return x_mid * y / (1 - y)
+
+print(compactification(7e13, X_MID[1]))
+print(inv_compactification(0.35, X_MID[2]))
 
 
 

@@ -683,10 +683,10 @@ class AYS_Environment(Env):
         y_values = [[] for _ in range(self.num_agents)]
         z_values = [[] for _ in range(self.num_agents)]
         colours = plt.cm.brg(np.linspace(0, 1, self.num_agents))
-        colour_list = ['red', 'blue', 'green', 'purple']
+        colour_list = ['blue', 'red', 'green', 'purple']
         if maddpg:
             colour_list = ['maroon', 'red', 'tomato', 'lightcoral', 'mediumaquamarine', 'mediumseagreen', 'forestgreen', 'darkgreen']
-            # colour_list = ['red', 'blue', 'green', 'purple']
+            # colour_list = ['blue', 'red', 'green', 'purple']
 
         state_list = torch.rand(2, 2, 3)
         # state_list.append(start_state)
@@ -710,10 +710,15 @@ class AYS_Environment(Env):
 
             # Plot trajectory
                 for agent in range(self.num_agents):
-                    my_colour = colour_list[action_n[agent]]
-                    # my_colour = colour_list[agent]
-                    ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(), zs=reshaped_tensor[agent, :, 2].tolist(),
-                                color=my_colour, alpha=0.6, lw=3,  label="Agent : {}".format(agent))
+                    # my_colour = colour_list[action_n[agent]]
+                    my_colour = colour_list[agent]
+                    if ind == 1:
+                        ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(),
+                                    zs=reshaped_tensor[agent, :, 2].tolist(),
+                                    color=my_colour, alpha=0.6, lw=3, label="Agent : {}".format(agent))
+                    else:
+                        ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(), zs=reshaped_tensor[agent, :, 2].tolist(),
+                                    color=my_colour, alpha=0.6, lw=3)
 
                 state_list[0] = state_n.clone()
 
@@ -726,6 +731,7 @@ class AYS_Environment(Env):
         # final_state = self.which_final_state().name
         # if fname is not None:
         #     plt.savefig(fname)
+        plt.legend()
         # plt.show()
         plt.savefig('./plot_graphs/' + fname)
 

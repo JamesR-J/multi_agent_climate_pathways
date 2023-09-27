@@ -87,14 +87,15 @@ def moving_avg_graph(df, multi_agent, save_name, title, true_labels, labels):
             plt.plot(df.index, group_mean, label=group[0], color=colour_list[ind])
         else:
             plt.plot(df.index, group_mean, label=labels[ind], color=colour_list[ind])  #, alpha=0.4)
-        # plt.fill_between(df.index, group_mean - value * group_std, group_mean + value * group_std, alpha=0.2,
-        #                  color=colour_list[ind])
+        plt.fill_between(df.index, group_mean - value * group_std, group_mean + value * group_std, alpha=0.2,
+                         color=colour_list[ind])
     plt.xlabel('Episode')
-    # plt.ylabel('Moving Average Reward')
-    plt.ylabel('Episode Reward')
+    plt.ylabel('Moving Average Reward')
+    # plt.ylabel('Episode Reward')
     # plt.ylabel('Action')
     # plt.ylim(-13, 500)
     # plt.ylim(-95, 670)
+    plt.ylim(-15, 607)
     # plt.title(title)
 
     # ax = plt.gca()
@@ -107,7 +108,7 @@ def moving_avg_graph(df, multi_agent, save_name, title, true_labels, labels):
 
 
 if __name__ == "__main__":
-    file_name = "maxY_epreward_agent_0.csv"
+    file_name = "hetero_agent_only_vs_all_shared_both_stop_agent_0.csv"
     # multi_agent = False
     multi_agent = True
     multi_with_single_agent = False
@@ -117,8 +118,10 @@ if __name__ == "__main__":
     title = "Moving Average Tings"
     true_labels = False
     # true_labels = True
-    labels = ["R_IPB    Agent 0",
-              "R_maxY Agent 1"
+    labels = ["All Shared Both Stop Agent 0",
+              "All Shared Both Stop Agent 1",
+              "Agent Only Both Stop Agent 0",
+              "Agent Only Both Stop Agent 1",
               ]
 
     df = read_csv(file_name, multi_agent, multi_with_single_agent)
