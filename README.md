@@ -1,9 +1,7 @@
-# Reinforcement Learn in climate models
-We use Reinforcement Learning to probe different climate models. 
+# Multi-Agent Reinforcement Learning in climate models
+Using MARL to derive climate policy incorporating anthropogenic agents. 
 
-All learning algorithms are made with pytorch (CUDA is recommended). 
-
-Publication in review.
+All learning algorithms utilise PyTorch (CUDA is recommended).
 
 
 
