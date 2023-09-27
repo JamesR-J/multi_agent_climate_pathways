@@ -1,19 +1,11 @@
-import argparse
-import os
 import sys
-import time
-
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from learn.gradient_estimators import *
-from learn.agent import Agent
+from agent_algos.gradient_estimators import *
 from typing import List, Optional
-from learn.utils import RunningMeanStd
-import torch.optim as optim
-
-# from envs.AYS_Environment_MultiAgent import *
+from agent_algos.utils import RunningMeanStd
+from torch.optim import Adam
+from copy import deepcopy
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,10 +20,10 @@ class NN(nn.Module):
         super(NN, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.out = nn.Linear(hidden_dim // 2, action_dim)  # TODO should this be // 2 or nah
+        self.out = nn.Linear(hidden_dim // 2, action_dim)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x.float()))  # TODO traceback why need a float here
+        x = F.relu(self.fc1(x.float()))
         x = F.relu(self.fc2(x))
         q_val = self.out(x)
         return q_val
@@ -42,11 +34,11 @@ class DuellingNN(nn.Module):
         super(DuellingNN, self).__init__()
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.a = nn.Linear(hidden_dim // 2, action_dim)  # TODO same here inni
-        self.v = nn.Linear(hidden_dim // 2, 1)  # TODO same here inni
+        self.a = nn.Linear(hidden_dim // 2, action_dim)
+        self.v = nn.Linear(hidden_dim // 2, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x.float()))  # TODO traceback why need a float here
+        x = F.relu(self.fc1(x.float()))
         x = F.relu(self.fc2(x))
         advantages = self.a(x)
         value = self.v(x)
@@ -55,97 +47,51 @@ class DuellingNN(nn.Module):
         return a_values
 
 
-class abstract_agent(nn.Module):
-    def __init__(self):
-        super(abstract_agent, self).__init__()
+class ActorNetwork(nn.Module):
+    def __init__(self, obs_dim, hidden_dim_width, n_actions):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.layers = nn.Sequential(*[
+            nn.Linear(obs_dim, hidden_dim_width), nn.ReLU(),
+            nn.Linear(hidden_dim_width, hidden_dim_width), nn.ReLU(),
+            nn.Linear(hidden_dim_width, n_actions),
+        ])
 
-    def act(self, input):
-        policy, value = self.forward(input)  # flow the input through the nn
-        return policy, value
+    def forward(self, obs):
+        return self.layers(obs.float())
 
+    def hard_update(self, source):
+        for target_param, source_param in zip(self.parameters(), source.parameters()):
+            target_param.data.copy_(source_param.data)
 
-class actor_agent(abstract_agent):
-    def __init__(self, num_inputs, action_size, args):
-        super(actor_agent, self).__init__()
-        self.linear_a1 = nn.Linear(num_inputs, args.num_units_1)
-        self.linear_a2 = nn.Linear(args.num_units_1, args.num_units_2)
-        self.linear_a = nn.Linear(args.num_units_2, action_size)
-
-        self.linear_a1_bn = nn.LayerNorm(num_inputs)
-        self.linear_a2_bn = nn.LayerNorm(args.num_units_1)
-
-        self.reset_parameters()
-
-        self.LReLU = nn.LeakyReLU(0.01)
-        self.tanh = nn.Tanh()
-        self.train()
-
-        self.nn_multiplier = 0
-
-    def reset_parameters(self):
-        gain = nn.init.calculate_gain('leaky_relu')
-        gain_tanh = nn.init.calculate_gain('tanh')
-        self.linear_a1.weight.data.mul_(gain)
-        self.linear_a2.weight.data.mul_(gain)
-        self.linear_a.weight.data.mul_(gain_tanh)
-
-    def forward(self, input, model_original_out=False):
-        """
-        The forward func defines how the data flows through the graph(layers)
-        """
-        x = F.relu(self.linear_a1(self.linear_a1_bn(input)))
-        x = F.relu(self.linear_a2(self.linear_a2_bn(x)))
-
-        policy = self.linear_a(x)  # * max_action_size # needed if actions are clamped at the output
-
-        policy_adj = policy  # * self.nn_multiplier
-
-        if model_original_out:
-            return policy_adj, policy_adj
-
-        return policy_adj
+    def soft_update(self, source, t):
+        for target_param, source_param in zip(self.parameters(), source.parameters()):
+            target_param.data.copy_((1 - t) * target_param.data + t * source_param.data)
 
 
-class critic_agent(abstract_agent):
-    def __init__(self, obs_shape_n, action_shape_n, args):
-        super(critic_agent, self).__init__()
-        self.linear_o_c1 = nn.Linear(obs_shape_n, args.num_units_1)
-        self.linear_a_c1 = nn.Linear(action_shape_n, args.num_units_1)
-        self.linear_c2 = nn.Linear(args.num_units_1 * 2, args.num_units_2)
-        self.linear_c = nn.Linear(args.num_units_2, 1)
+class CriticNetwork(nn.Module):
+    def __init__(self, all_obs_dims, all_acts_dims, hidden_dim_width):
+        super().__init__()
+        input_size = sum(all_obs_dims) + sum(all_acts_dims)
 
-        self.linear_o_c1_bn = nn.LayerNorm(obs_shape_n)
-        self.linear_a_c1_bn = nn.LayerNorm(action_shape_n)
-        self.linear_c2_bn = nn.LayerNorm(args.num_units_1 * 2)
+        self.layers = nn.Sequential(*[
+            nn.Linear(input_size, hidden_dim_width),
+            nn.ReLU(),
+            nn.Linear(hidden_dim_width, hidden_dim_width),
+            nn.ReLU(),
+            nn.Linear(hidden_dim_width, 1),
+        ])
 
-        self.reset_parameters()
+    def forward(self, obs_and_acts):
+        return self.layers(obs_and_acts)
 
-        self.LReLU = nn.LeakyReLU(0.01)
-        self.tanh = nn.Tanh()
-        self.train()
+    def hard_update(self, source):
+        for target_param, source_param in zip(self.parameters(), source.parameters()):
+            target_param.data.copy_(source_param.data)
 
-    def reset_parameters(self):
-        gain = nn.init.calculate_gain('leaky_relu')
-        gain_tanh = nn.init.calculate_gain('tanh')
-        self.linear_o_c1.weight.data.mul_(gain)
-        self.linear_a_c1.weight.data.mul_(gain)
-        self.linear_c2.weight.data.mul_(gain)
-        self.linear_c.weight.data.mul_(gain)
-
-    def forward(self, obs_input, action_input, model_original_out=False):
-        x_o = F.relu(self.linear_o_c1(self.linear_o_c1_bn(obs_input)))
-        x_a = F.relu(self.linear_a_c1(self.linear_a_c1_bn(action_input)))
-
-        x_cat = torch.cat([x_o, x_a], dim=1)
-
-        x = F.relu(self.linear_c2(self.linear_c2_bn(x_cat)))
-
-        value = self.linear_c(x)
-
-        if model_original_out:
-            return value, value
-
-        return value
+    def soft_update(self, source, t):
+        for target_param, source_param in zip(self.parameters(), source.parameters()):
+            target_param.data.copy_((1 - t) * target_param.data + t * source_param.data)
 
 
 class DQN:
@@ -215,7 +161,7 @@ class DQN:
         next_state_values = self.next_state_value_estimation(next_states, done)
 
         # target: y_t = r_t + gamma * max[Q(s,a)]
-        if rewards.shape == (256, 1):  # TODO 256 is batch size and hardcoded also in the NN
+        if rewards.shape == (256, 1):  # 256 is batch size and hardcoded also in the NN
             targets = (rewards.squeeze(1) + self.gamma * next_state_values.squeeze(1))
         else:
             targets = (rewards + self.gamma * next_state_values.squeeze(1))
@@ -263,9 +209,9 @@ class DQN:
         return "DQN"
 
 
-class DuelDDQN(DQN):
+class D3QN(DQN):
     def __init__(self, state_dim, action_dim, lr=0.004133, rho=0.5307, tau=0.01856, **kwargs):
-        super(DuelDDQN, self).__init__(state_dim, action_dim, lr=lr, rho=rho, tau=tau, **kwargs)
+        super(D3QN, self).__init__(state_dim, action_dim, lr=lr, rho=rho, tau=tau, **kwargs)
 
         self.target_net = DuellingNN(state_dim, action_dim).to(DEVICE)
         self.policy_net = DuellingNN(state_dim, action_dim).to(DEVICE)
@@ -284,23 +230,108 @@ class DuelDDQN(DQN):
         return next_state_values
 
     def __str__(self):
-        return "DuelDDQN"
+        return "D3QN"
+
+
+class Agent:
+    def __init__(self,
+                 agent_idx,
+                 obs_dims,
+                 act_dims,
+                 hidden_dim_width,
+                 critic_lr,
+                 actor_lr,
+                 gradient_clip,
+                 soft_update_size,
+                 policy_regulariser,
+                 gradient_estimator,
+                 ):
+        self.agent_idx = agent_idx
+        self.soft_update_size = soft_update_size
+        self.n_obs = obs_dims[self.agent_idx]
+        self.n_acts = act_dims[self.agent_idx]
+        self.n_agents = len(obs_dims)
+        self.gradient_clip = gradient_clip
+        self.policy_regulariser = policy_regulariser
+        self.gradient_estimator = gradient_estimator
+        # -----------
+
+        # ***** POLICY *****
+        self.policy = ActorNetwork(self.n_obs, hidden_dim_width, self.n_acts)
+        self.target_policy = ActorNetwork(self.n_obs, hidden_dim_width, self.n_acts)
+        self.target_policy.hard_update(self.policy)
+        # ***** ****** *****
+
+        # ***** CRITIC *****
+        self.critic = CriticNetwork(obs_dims, act_dims, hidden_dim_width)
+        self.target_critic = CriticNetwork(obs_dims, act_dims, hidden_dim_width)
+        self.target_critic.hard_update(self.critic)
+        # ***** ****** *****
+
+        # OPTIMISERS
+        self.optim_actor = Adam(self.policy.parameters(), lr=actor_lr, eps=0.001)
+        self.optim_critic = Adam(self.critic.parameters(), lr=critic_lr, eps=0.001)
+
+    def act_behaviour(self, obs):
+        policy_output = self.policy(Tensor(obs))
+        gs_output = self.gradient_estimator(policy_output, need_gradients=False)
+        return torch.argmax(gs_output, dim=-1)
+
+    def act_target(self, obs):
+        policy_output = self.target_policy(Tensor(obs))
+        gs_output = self.gradient_estimator(policy_output, need_gradients=False)
+        return torch.argmax(gs_output, dim=-1)
+
+    def update_critic(self, all_obs, all_nobs, target_actions_per_agent, sampled_actions_per_agent, rewards, dones,
+                      gamma):
+        target_actions = torch.concat(target_actions_per_agent, axis=1)
+        sampled_actions = torch.concat(sampled_actions_per_agent, axis=1)
+
+        Q_next_target = self.critic(torch.concat((all_nobs, target_actions), dim=1))
+        target_ys = rewards + (1 - dones) * gamma * Q_next_target
+        behaviour_ys = self.critic(torch.concat((all_obs, sampled_actions), dim=1))
+
+        loss = F.mse_loss(behaviour_ys, target_ys.detach())
+
+        self.optim_critic.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.gradient_clip)
+        self.optim_critic.step()
+
+    def update_actor(self, all_obs, agent_obs, sampled_actions):
+        policy_outputs = self.policy(agent_obs)
+        gs_outputs = self.gradient_estimator(policy_outputs)
+
+        _sampled_actions = deepcopy(sampled_actions)
+        _sampled_actions[self.agent_idx] = gs_outputs
+
+        loss = - self.critic(torch.concat((all_obs, *_sampled_actions), axis=1)).mean()
+        loss += (policy_outputs ** 2).mean() * self.policy_regulariser
+
+        self.optim_actor.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.gradient_clip)
+        self.optim_actor.step()
+
+    def soft_update(self):
+        self.target_critic.soft_update(self.critic, self.soft_update_size)
+        self.target_policy.soft_update(self.policy, self.soft_update_size)
 
 
 class MADDPG:
     def __init__(
-        self,
-        env,
-        critic_lr : float,
-        actor_lr : float,
-        gradient_clip : float,
-        hidden_dim_width : int,
-        gamma : float,
-        soft_update_size : float,
-        policy_regulariser : float,
-        gradient_estimator : GradientEstimator,
-        standardise_rewards : bool,
-        pretrained_agents : Optional[ List[Agent] ] = None,
+            self,
+            env,
+            critic_lr: float,
+            actor_lr: float,
+            gradient_clip: float,
+            hidden_dim_width: int,
+            gamma: float,
+            soft_update_size: float,
+            policy_regulariser: float,
+            gradient_estimator: GradientEstimator,
+            standardise_rewards: bool,
+            pretrained_agents: Optional[List[Agent]] = None,
     ):
         self.n_agents = env.num_agents
         self.gamma = gamma
@@ -313,7 +344,6 @@ class MADDPG:
                 agent_idx=ii,
                 obs_dims=obs_dims,
                 act_dims=act_dims,
-                # TODO: Consider changing this to **config
                 hidden_dim_width=hidden_dim_width,
                 critic_lr=critic_lr,
                 actor_lr=actor_lr,
@@ -337,9 +367,6 @@ class MADDPG:
         batched_obs = torch.concat(sample['obs'], axis=1)
         batched_nobs = torch.concat(sample['nobs'], axis=1)
 
-        # ********
-        # TODO: This is all a bit cumbersome--could be cleaner?
-
         target_actions = [
             self.agents[ii].act_target(sample['nobs'][ii])
             for ii in range(self.n_agents)
@@ -348,12 +375,12 @@ class MADDPG:
         target_actions_one_hot = [
             F.one_hot(target_actions[ii], num_classes=self.agents[ii].n_acts)
             for ii in range(self.n_agents)
-        ] # agent batch actions
+        ]  # agent batch actions
 
         sampled_actions_one_hot = [
             F.one_hot(sample['acts'][ii].to(torch.int64), num_classes=self.agents[ii].n_acts)
             for ii in range(self.n_agents)
-        ] # agent batch actions
+        ]  # agent batch actions
 
         # ********
         # Standardise rewards if requested
@@ -383,6 +410,6 @@ class MADDPG:
         for agent in self.agents:
             agent.soft_update()
 
-        self.gradient_estimator.update_state() # Update GE state, if necessary
+        self.gradient_estimator.update_state()  # Update GE state, if necessary
 
         return None

@@ -63,7 +63,7 @@ ays.globalize_dictionary(ays.grid_parameters, module=ays)
 ays.globalize_dictionary(ays.boundary_parameters, module=ays)
 
 
-def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, plot_boundary=True,  # TODO rewrite the create figure into same file and use the self.model call to get the ays or ricen
+def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, plot_boundary=True,
                   reset=False, ax3d=None, fig3d=None):
     if not reset:
         if ax is None:
@@ -93,7 +93,7 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     S_scale = 1e9
     Y_scale = 1e12
     # ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
-    ax3d.set_xlabel("\n\nemissions E  \n  [GtC]", )  # TODO finalise this correctly
+    ax3d.set_xlabel("\n\nemissions E  \n  [GtC]", )
     ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]" % Y_scale, )
     # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
     if not top_down:
@@ -162,25 +162,6 @@ def create_figure_ricen(top_down, label=None, colors=None, ax=None, ticks=True, 
 
     ax3d.grid(False)
 
-    # legend_elements = []
-    # if label is None:
-    #     # For Management Options
-    #     for idx in range(len(management_options)):
-    #         legend_elements.append(Line2D([0], [0], lw=2, color=color_list[idx], label=management_options[idx]))
-    #
-    #     # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=1, color=shelter_color, label='Shelter')
-    # else:
-    #     for i in range(len(label)):
-    #         ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=1, color=colors[i], label=label[i])
-
-    # # For Startpoint
-    # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=4, color='black')
-
-    # # For legend
-    # legend_elements.append(
-    #     Line2D([0], [0], lw=2, label='current state', marker='o', color='w', markerfacecolor='red', markersize=15))
-    # # ax3d.legend(handles=legend_elements,prop={'size': 14}, bbox_to_anchor=(0.85,.90), fontsize=20,fancybox=True, shadow=True)
-
     return fig3d, ax3d
 
 
@@ -201,7 +182,6 @@ def create_figure_ricen(top_down, label=None, colors=None, ax=None, ticks=True, 
 
 
 def add_boundary(ax3d, *, sunny_boundaries, add_outer=False, plot_boundaries=None, model='ays', **parameters):
-    # def add_boundary(ax3d, *, boundary = ["planetary-boundary"], add_outer=False, plot_boundaries=None, **parameters):
     """show boundaries of desirable region"""
 
     if not sunny_boundaries:
@@ -274,123 +254,6 @@ def add_boundary(ax3d, *, sunny_boundaries, add_outer=False, plot_boundaries=Non
     boundary_surface_PB.set_edgecolor("gray")
     ax3d.add_collection3d(boundary_surface_PB)
 
-    # elif boundary == "both":
-    # raise NotImplementedError("will be done soon")
-    # boundary_surface_both = plt3d.art3d.Poly3DCollection([[[0,.5,0],[0,.5,1],[A_PB,.5,1],[A_PB,.5,0]],
-    # [[A_PB,.5,0],[A_PB,1,0],[A_PB,1,1],[A_PB,.5,1]]])
-    # boundary_surface_both.set_color("gray"); boundary_surface_both.set_edgecolor("gray"); boundary_surface_both.set_alpha(0.25)
-    # ax3d.add_collection3d(boundary_surface_both)
-    # else:
-    # raise NameError("Unkown boundary {!r}".format(boundary))
-    #
-    # if add_outer:
-    # # add outer limits of undesirable view from standard view perspective:
-    # undesirable_outer_stdview = plt3d.art3d.Poly3DCollection([[[0,0,0],[0,0,1],[0,.5,1],[0,.5,0]],
-    # [[A_PB,1,0],[aws.A_max,1,0],[aws.A_max,1,1],[A_PB,1,1]],
-    # [[0,0,0],[0,.5,0],[A_PB,.5,0],[A_PB,1,0],[aws.A_max,1,0],[aws.A_max,0,0]]])
-    # undesirable_outer_stdview.set_color("gray"); undesirable_outer_stdview.set_edgecolor("gray"); undesirable_outer_stdview.set_alpha(0.25)
-    # ax3d.add_collection3d(undesirable_outer_stdview)
-
-
-
-# def create_extract_figure(Azimut=AZIMUTH_FLOW, plot_boundary=False, label=None, colors=None, ax=None):
-#     font_size = 20
-#
-#     if ax is None:
-#         fig3d = plt.figure(figsize=(12, 9))
-#         # ax3d = plt3d.Axes3D(fig3d)
-#         ax3d = fig3d.add_subplot(111, projection="3d")
-#     else:
-#         ax3d = ax
-#         fig3d = None
-#
-#     # ax3d.set_title('Sustainable path inside planetary boundaries \nfound by machine learning', size=font_size+2)
-#
-#     # ax3d.set_xticks([])
-#     # ax3d.set_yticks([])
-#     # ax3d.set_zticks([])
-#     a_min, a_max = 0.54, 0.65
-#     y_min, y_max = 0.33, 0.55
-#     s_min, s_max = 0.0, 1
-#
-#     ax3d.set_xlim(a_min, a_max)
-#     ax3d.set_ylim(y_min, y_max)
-#     ax3d.set_zlim(s_min, s_max)
-#
-#     make_3d_ticks_ays(ax3d, boundaries=[[a_min, a_max], [y_min, y_max], [s_min, s_max]], num_a=4)
-#     A_PB = [10, 265]
-#     top_view = [10, -176]
-#     ax3d.view_init(top_view[0], top_view[1])
-#     # ax3d.view_init(ays_general.ELEVATION_FLOW, Azimut)
-#
-#     ax3d.set_xlabel("\n carbon stock A [GtC]", )
-#     ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]" % Y_scale, )
-#     ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]" % S_scale, )
-#
-#     # Add boundaries to plot
-#     if plot_boundary:
-#         ays_general.add_boundary(ax3d,
-#                                  sunny_boundaries=["planetary-boundary", "social-foundation"],
-#                                  plot_boundaries=[[a_min, a_max],
-#                                                   [y_min, y_max],
-#                                                   [s_min, s_max]],
-#                                  **ays.grid_parameters, **ays.boundary_parameters)
-#
-#     # Plot Startpoint
-#
-#     ax3d.grid(False)
-#
-#     if label is None:
-#         legend_elements = []
-#         #         [Line2D([0], [0], color='b', lw=4, label='Line'),
-#         #                    Line2D([0], [0], marker='o', color='w', label='Scatter',
-#         #                           markerfacecolor='g', markersize=15),
-#         #                    Patch(facecolor='orange', edgecolor='r',
-#         #                          label='Color Patch')]
-#
-#         # For Management Options
-#         for idx in range(len(management_options)):
-#             legend_elements.append(Line2D([0], [0], lw=2, color=color_list[idx], label=management_options[idx]))
-#
-#         # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=1, color=shelter_color, label='Shelter')
-#     else:
-#         for i in range(len(label)):
-#             ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=1, color=colors[i], label=label[i])
-#
-#     # For Startpoint
-#     ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=6, color='red')
-#     legend_elements.append(
-#         Line2D([0], [0], lw=2, label='current state', marker='o', color='w', markerfacecolor='red', markersize=15))
-#
-#     ax3d.legend(handles=legend_elements, prop={'size': 14}, bbox_to_anchor=(0.85, .90), fontsize=20, fancybox=True,
-#                 shadow=True)
-#
-#     return fig3d, ax3d
-
-
-# def create_axis_3d(ax3d):
-#     ax3d.set_xticks([])
-#     ax3d.set_yticks([])
-#     ax3d.set_zticks([])
-#
-#     A_PB = [10, 265]
-#     top_view = [15, 180]
-#     ax3d.view_init(top_view[0], top_view[1])
-#
-#     S_scale = 1e9
-#     Y_scale = 1e12
-#     ax3d.set_xlabel("                   A", )
-#     ax3d.set_ylabel("Y", )
-#     ax3d.set_zlabel("S ", )
-#
-#     # Add boundaries to plot
-#     add_boundary(ax3d,
-#                              sunny_boundaries=["planetary-boundary", "social-foundation"],
-#                              **ays.grid_parameters, **ays.boundary_parameters)
-#
-#     # For Startpoint
-#     ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=6, color='red')
-
 
 def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_scale=1e9, Y_scale=1e12, num_a=12, num_y=12,
                   num_s=12, ):
@@ -408,20 +271,7 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
         start, stop = inv_transf(boundaries[0])
         ax3d.set_xlim(*boundaries[0])
 
-    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])  # TODO hardcoded fix but it works for now inni
-
-    # formatters, locators = transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
-    # if transformed_formatters:
-    #     new_formatters = []
-    #     for el, loc in zip(formatters, locators):
-    #         if el:
-    #             new_formatters.append("{:4.2f}".format(loc))
-    #         else:
-    #             new_formatters.append(el)
-    #     formatters = new_formatters
-    # #print(locators, formatters)
-    # ax3d.w_xaxis.set_major_locator(ticker.FixedLocator(locators))
-    # ax3d.w_xaxis.set_major_formatter(ticker.FixedFormatter(formatters))
+    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])
 
     # Y - ticks
     transf = ft.partial(compactification, x_mid=current_state[1])
@@ -479,77 +329,9 @@ def make_3d_ticks_ricen(ax3d, boundaries=None, transformed_formatters=False, S_s
     transf = ft.partial(compactification, x_mid=current_state[0])
     inv_transf = ft.partial(inv_compactification, x_mid=current_state[0])
 
-    ax3d.set_xlim(0, 20)  # TODO fix this hardcoded fix somehow idk how
-    ax3d.set_ylim(0, 750)  # TODO fix this hardcoded fix somehow idk how
-    ax3d.set_zlim(-10, 15)  # TODO fix this hardcoded fix somehow idk how
-
-    # A- ticks
-    # if boundaries[0] is None:
-    #     start, stop = 0, np.infty
-    #     ax3d.set_xlim(0,1)
-    # else:
-    #     start, stop = inv_transf(boundaries[0])
-    #     ax3d.set_xlim(*boundaries[0])
-    # formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop, num=num_a)
-    # if transformed_formatters:
-    #     new_formatters = []
-    #     for el, loc in zip(formatters, locators):
-    #         if el:
-    #             new_formatters.append("{:4.2f}".format(loc))
-    #         else:
-    #             new_formatters.append(el)
-    #     formatters = new_formatters
-    # #print(locators, formatters)
-    # ax3d.w_xaxis.set_major_locator(ticker.FixedLocator(locators))
-    # ax3d.w_xaxis.set_major_formatter(ticker.FixedFormatter(formatters))
-
-    # # Y - ticks
-    # transf = ft.partial(compactification, x_mid=current_state[1])
-    # inv_transf = ft.partial(inv_compactification, x_mid=current_state[1])
-    #
-    # if boundaries[1] is None:
-    #     start, stop = 0, np.infty
-    #     ax3d.set_ylim(0, 1)
-    # else:
-    #     start, stop = inv_transf(boundaries[1])
-    #     ax3d.set_ylim(*boundaries[1])
-    #
-    # formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, scale=Y_scale, start=start,
-    #                                                      stop=stop, num=num_y)
-    # if transformed_formatters:
-    #     new_formatters = []
-    #     for el, loc in zip(formatters, locators):
-    #         if el:
-    #             new_formatters.append("{:4.2f}".format(loc))
-    #         else:
-    #             new_formatters.append(el)
-    #     formatters = new_formatters
-    # ax3d.w_yaxis.set_major_locator(ticker.FixedLocator(locators))
-    # ax3d.w_yaxis.set_major_formatter(ticker.FixedFormatter(formatters))
-    #
-    # transf = ft.partial(compactification, x_mid=current_state[2])
-    # inv_transf = ft.partial(inv_compactification, x_mid=current_state[2])
-    #
-    # # S ticks
-    # if boundaries[2] is None:
-    #     start, stop = 0, np.infty
-    #     ax3d.set_zlim(0, 1)
-    # else:
-    #     start, stop = inv_transf(boundaries[2])
-    #     ax3d.set_zlim(*boundaries[2])
-    #
-    # formatters, locators = ays_general.transformed_space(transf, inv_transf, axis_use=True, start=start, stop=stop,
-    #                                                      num=num_s)
-    # if transformed_formatters:
-    #     new_formatters = []
-    #     for el, loc in zip(formatters, locators):
-    #         if el:
-    #             new_formatters.append("{:4.2f}".format(loc))
-    #         else:
-    #             new_formatters.append(el)
-    #     formatters = new_formatters
-    # ax3d.w_zaxis.set_major_locator(ticker.FixedLocator(locators))
-    # ax3d.w_zaxis.set_major_formatter(ticker.FixedFormatter(formatters))
+    ax3d.set_xlim(0, 20)
+    ax3d.set_ylim(0, 750)
+    ax3d.set_zlim(-10, 15)
 
 
 @np.vectorize

@@ -55,27 +55,24 @@ class AYS_Environment(Env):
     management_options = ['default', 'LG', 'ET', 'LG+ET']
     action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
     action_space_number = np.arange(len(action_space))
-    # AYS example from Kittel et al. 2017:
+
     tau_A = 50  # carbon decay - single val
     tau_S = 50  # renewable knowledge stock decay - multi val
     beta = 0.03  # economic output growth - multi val
     beta_LG = 0.015  # halved economic output growth - multi val
     eps = 147  # energy efficiency param - single val
-    A_offset = 600  # i have no idea # TODO check this
+    A_offset = 600
     theta = beta / (950 - A_offset)  # beta / ( 950 - A_offset(=350) )
     # theta = 8.57e-5
 
     rho = 2.  # renewable knowledge learning rate - multi val
     sigma = 4e12  # break even knowledge - multi val
     sigma_ET = sigma * 0.5 ** (1 / rho)  # can't remember the change, but it's somewhere - multi val
-    # sigma_ET = 2.83e12
 
     phi = 4.7e10
 
-    # AYS0 = [240, 7e13, 5e11]
-
-    trade = 1.0  # TODO adjust these parameters
-    trade_inflicted = 1.4  # TODO adjust these parameters
+    trade = 1.0
+    trade_inflicted = 1.4
 
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
@@ -178,7 +175,7 @@ class AYS_Environment(Env):
 
         self.t = next_t
 
-        self.get_reward_function(action)  # TODO check if this might be needed before step is done to evaluate the current state, not the next state!
+        self.get_reward_function(action)
 
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
@@ -187,11 +184,11 @@ class AYS_Environment(Env):
                 if not self._inside_planetary_boundaries(agent):
                     self.final_state[agent] = True
             else:
-                if not self._inside_A_pb(agent):  # TODO is this true for the PB_extension one if look at that
+                if not self._inside_A_pb(agent):
                     self.final_state[agent] = True
 
-        # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state
-        #     if torch.any(self.final_state):  # TODO testing if ending if one agent hits a PB then it cancels
+        # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state  # this is the One Stop strategy
+        #     if torch.any(self.final_state):
         #         for agent in range(self.num_agents):
         #             if self.final_state[agent]:
         #                 if self.green_fixed_point(agent):
@@ -202,7 +199,7 @@ class AYS_Environment(Env):
         if torch.all(self.final_state):
             for agent in range(self.num_agents):
                 if self.trade_actions:
-                    if self.reward_type[agent] == "PB" or self.reward_type[agent] == "PB_new" or self.reward_type[agent] == "PB_new_new" or self.reward_type[agent] == "PB_new_new_new" or self.reward_type[agent] == "PB_new_new_new_new" or self.reward_type[agent] == "policy_cost":  # TODO this should only be for trade actions
+                    if self.reward_type[agent] == "PB" or self.reward_type[agent] == "IPB":
                         e = self.state[agent, 0]
                         y = self.state[agent, 1]
                         a = self.state[agent, 2]
@@ -215,9 +212,6 @@ class AYS_Environment(Env):
         else:
             self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
 
-        # print(self.reward)
-        # print(self.state)
-
         return self.state.clone(), self.reward, self.final_state, self.observation_space
 
     def generate_observation(self, ode_int_output, parameter_matrix):
@@ -227,7 +221,6 @@ class AYS_Environment(Env):
         elif self.obs_type == "all_shared" and not self.trade_actions:
             result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
             result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)  # 1 for each agent and then a overall, and yse for each agent
-            # result = torch.cat((ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)  # a overall, and yse for each agent
             return result, ode_int_output
 
         elif self.obs_type == "all_shared" and self.trade_actions:
@@ -250,7 +243,6 @@ class AYS_Environment(Env):
         return torch.tensor(traj_one_step[1]).view(-1, 4), parameter_matrix  # A Y S E output
 
     def reset(self, start_state=None):
-        # self.state=np.array(self.random_StartPoint())
         if start_state is None:
             self.state = self.current_state_region_StartPoint()
         else:
@@ -259,12 +251,12 @@ class AYS_Environment(Env):
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.t = self.t0
 
-        self.reward_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
+        self.reward_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)), dim=1)  # bit dodgy assuming emissions at 10, then normalised
 
         self.old_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
         if self.obs_type == 'agent_only':
-            self.observation_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)), dim=1)  # TODO dodgy fix assuming emissions at 10 - need to fix this really
+            self.observation_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)), dim=1)  # bit dodgy assuming emissions at 10, then normalised
         elif self.obs_type == 'all_shared' and not self.trade_actions:
             mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 20]).repeat(self.num_agents, 1)), dim=1).flatten().repeat(self.num_agents, 1)
             self.observation_space = torch.cat((torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1), mid), dim=1)
@@ -274,105 +266,17 @@ class AYS_Environment(Env):
 
         return self.state.clone(), self.observation_space
 
-    def get_reward_function(self, action):
-        def policy_cost(agent, action=0):  # TODO check this if works
-            """@Theo Wolf, we add a cost to using management options """
-            if self._inside_planetary_boundaries(agent):
-                self.reward[agent] = torch.norm(self.state[agent] - self.PB[agent])
-            else:
-                self.reward[agent] = 0.0
-            if self.management_options[action] != 'default':
-                #reward -= self.management_cost  # cost of using management
-                self.reward[agent] *= self.management_cost
-                if self.management_options[action] == 'LG+ET':
-                    # reward -= self.management_cost  # we add more cost for using both actions
-                    self.reward[agent] *= self.management_cost
-
-        def reward_distance_PB(agent, action=0):
-            self.reward[agent] = 0.0
-
-            if self._inside_planetary_boundaries(agent):
-                # self.reward[agent] = torch.norm(self.state[agent]-self.PB[agent])
-                # self.reward[agent] = torch.norm(self.state[agent, 1:] - self.PB[agent, 1:])
-                self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])
-            else:
-                self.reward[agent] = 0.0
-
-        def reward_distance_PB_new(agent, action=0):
-            self.reward[agent] = 0.0
-
+    def get_reward_function(self, action=None):
+        def reward_distance_PB(agent):
             if self._inside_planetary_boundaries(agent):
                 self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])
             else:
-                if self.reward_space[agent, 1] <= self.Y_SF[agent]:
-                    self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent]) - 1
-                else:
-                    self.reward[agent] = 0.0
-
-            # if action >= 4:  # TODO added bonus if use the trade action but idk if this is actually useful
-            #     self.reward[agent] += 5
-
-            # sys.exit()
-
-        def reward_distance_PB_new_new(agent, action=0):
-            self.reward[agent] = 0.0
-
-            # print(self.reward_space[agent, :2])
-            # print(self.PB_4[agent])
-            # self.reward_space[agent, 0] = 0.3  # to 0.4 changes reward from 0.5080 to 0.5348
-            # self.reward_space[agent, 1] = 0.5  # to 0.6 changes reward from 0.5080 to 0.6067
-            # print(torch.norm(self.reward_space[agent, :2] - self.PB_4[agent, :2]))
-
-            # to 0.4 changes reward from 0.5159 to 0.6277
-            # to 0.6 changes reward from 0.5159 to 0.6263
-
-            # 0.3  0.7654
-            # 0.7  0.7226
-
-            # 0.1  1.0244
-            # 0.5  0.7654
-
-            # print(torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2))
-            # sys.exit()
-
-            if self._inside_A_pb(agent):
-                self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])  # unweighted
-                # self.reward[agent] = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
-            else:
                 self.reward[agent] = 0.0
 
-        def reward_distance_PB_new_new_new(agent, action=0):  # TODO this one is bad probs can remove it
-            self.reward[agent] = 0.0
-
-            if self._inside_A_pb(agent):
-                new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
-            else:
-                new_reward = 0.0
-
-            if self.old_reward[agent] > new_reward:
-                self.reward[agent] = -(torch.abs(self.old_reward[agent] - new_reward) ** 2)
-            elif self.old_reward[agent] < new_reward:
-                self.reward[agent] = torch.abs(self.old_reward[agent] - new_reward) ** 2
-            else:
-                self.reward[agent] = 0.0
-
-            # print(self.old_reward[agent])
-            # print(new_reward)
-            # print(self.reward[agent])
-            # print("NEW ONE AFTER THIS M8Y")
-            #
-            self.old_reward[agent] = new_reward
-
-        def reward_distance_PB_new_new_new_new(agent, action=0):
-            self.reward[agent] = 0.0
-
+        def incentivised_reward_distance_PB(agent):
             if self._inside_A_pb(agent):
                 new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_4[agent])
             #     #  new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
-
-            # if self._inside_planetary_boundaries(agent):
-            #     new_reward = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])  # original one lol
-
             else:
                 new_reward = 0.0
 
@@ -385,47 +289,27 @@ class AYS_Environment(Env):
 
             self.old_reward[agent] = new_reward
 
-        def reward_distance_Y(agent, action=0):
-            self.reward[agent] = 0.
-
+        def reward_distance_Y(agent):
             self.reward[agent] = torch.abs(self.reward_space[agent, 1] - self.PB_3[agent, 1])  # max y
-            # self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])  # max a and y
 
-            # if self._inside_planetary_boundaries(agent):  # TODO do we need to check even in PB as we don't care about PBs
-            #     self.reward[agent] = torch.norm(self.reward_space[agent, :2] - self.PB_3[agent, :2])
-            # else:
-            #     self.reward[agent] = 0.0
-
-        def reward_distance_E(agent, action=0):
-            self.reward[agent] = 0.
-
+        def reward_distance_E(agent):
             self.reward[agent] = torch.abs(self.reward_space[agent, 3] - self.PB_3[agent, 3])  # max e
 
-        def reward_distance_A(agent, action=0):
-            self.reward[agent] = 0.
-
+        def reward_distance_A(agent):
             self.reward[agent] = torch.abs(self.reward_space[agent, 0] - self.PB_3[agent, 0]) / 4  # max a
 
         for agent in range(self.num_agents):
             if self.reward_type[agent] == 'PB':
                 reward_distance_PB(agent)
-            elif self.reward_type[agent] == 'PB_new':
-                reward_distance_PB_new(agent, action[agent])
-            elif self.reward_type[agent] == 'PB_new_new':
-                reward_distance_PB_new_new(agent, action[agent])
-            elif self.reward_type[agent] == 'PB_new_new_new':
-                reward_distance_PB_new_new_new(agent, action[agent])
-            elif self.reward_type[agent] == 'PB_new_new_new_new':
-                reward_distance_PB_new_new_new_new(agent, action[agent])
+            elif self.reward_type[agent] == 'IPB':
+                incentivised_reward_distance_PB(agent)
             elif self.reward_type[agent] == 'max_Y':
                 reward_distance_Y(agent)
             elif self.reward_type[agent] == 'max_E':
                 reward_distance_E(agent)
             elif self.reward_type[agent] == 'max_A':
                 reward_distance_A(agent)
-            elif self.reward_type[agent] == "policy_cost":
-                policy_cost(agent)
-            elif self.reward_type[agent] == None:
+            elif self.reward_type[agent] is None:
                 print("ERROR! You have to choose a reward function!\n",
                       "Available Reward functions for this environment are: PB, rel_share, survive, desirable_region!")
                 exit(1)
@@ -446,8 +330,6 @@ class AYS_Environment(Env):
         for i in range(remaining_steps):
             discounted_future_reward += self.gamma ** i * self.reward[agent]
 
-        # print("Agent number : {}".format(agent))
-        # print(discounted_future_reward)
         return discounted_future_reward
 
     @staticmethod
@@ -471,7 +353,7 @@ class AYS_Environment(Env):
             return np.infty
         return x_mid * y / (1 - y)
 
-    def _inside_A_pb(self, agent):  # TODO think this needed for single agent stuff
+    def _inside_A_pb(self, agent):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
@@ -482,7 +364,7 @@ class AYS_Environment(Env):
             # print("Outside PB!")
         return is_inside
 
-    def _inside_planetary_boundaries(self, agent):  # TODO confirm this is correct
+    def _inside_planetary_boundaries(self, agent):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
@@ -493,7 +375,7 @@ class AYS_Environment(Env):
             # print("Outside PB!")
         return is_inside
 
-    def _inside_planetary_boundaries_all(self):  # TODO confirm this is correct
+    def _inside_planetary_boundaries_all(self):
         e = self.state[:, 0]
         y = self.state[:, 1]
         a = self.state[:, 2]
@@ -532,7 +414,7 @@ class AYS_Environment(Env):
         else:
             return False
 
-    def _good_final_state(self, agent):  # TODO confirm this is correct
+    def _good_final_state(self, agent):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
@@ -543,7 +425,7 @@ class AYS_Environment(Env):
         else:
             return False
 
-    def which_final_state(self, agent):  # TODO confirm this is correct
+    def which_final_state(self, agent):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
@@ -556,7 +438,7 @@ class AYS_Environment(Env):
             # return Basins.OUT_PB
             return self._which_PB(agent)
 
-    def _which_PB(self, agent):  # TODO confirm this is correct
+    def _which_PB(self, agent):
         """ To check which PB has been violated"""
         if self.state[agent, 2] >= self.A_PB[agent]:
             return Basins.A_PB
@@ -576,7 +458,6 @@ class AYS_Environment(Env):
         return self.state
 
     def current_state_region_StartPoint(self):
-
         self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
         limit_start = 0.05
 
@@ -622,20 +503,8 @@ class AYS_Environment(Env):
             -action_number: Number of the action in the actionset.
              Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
         """
-        # if action < len(self.action_space):
-        #     action_tuple = self.action_space[action]
-        # else:
-        #     print("ERROR! Management option is not available!" + str(action))
-        #     print(get_linenumber())
-        #     sys.exit(1)
-
         if action is None:
             action = torch.tensor([0]).repeat(self.num_agents, 1)
-
-        # print(action)
-
-        # if type(action) == int:
-        #     action = torch.tensor([action]).view(self.num_agents, 1)
 
         selected_rows = self.action_space[action.squeeze(), :]
         if self.trade_actions:
@@ -659,7 +528,7 @@ class AYS_Environment(Env):
 
         beta = torch.where(mask_1, self.beta_LG, self.beta)
         sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
-        trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # TODO only works with 2 agents atm need to change that later on
+        trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # only works with 2 agents atm need to change that later on
 
         parameter_matrix = torch.cat((beta, self.eps, self.phi, self.rho, sigma, self.tau_A, self.tau_S, self.theta, trade), dim=1)
 
@@ -669,15 +538,10 @@ class AYS_Environment(Env):
         return self.state, self.reward_space
 
     def plot_run(self, learning_progress, fig, axes=None, colour=None, fname=None, maddpg=False):
-        timeStart = 0
-        intSteps = 2  # integration Steps
-        dt = 1
-        sim_time_step = np.linspace(timeStart, self.dt, intSteps)
         if axes is None:
             fig, ax3d = create_figure_ays(top_down=False)
         else:
             ax3d = axes
-        # start_state = learning_progress[0][0]
 
         x_values = [[] for _ in range(self.num_agents)]
         y_values = [[] for _ in range(self.num_agents)]
@@ -689,15 +553,11 @@ class AYS_Environment(Env):
             # colour_list = ['blue', 'red', 'green', 'purple']
 
         state_list = torch.rand(2, 2, 3)
-        # state_list.append(start_state)
-
         learning_progress = learning_progress[1:]
 
         for ind, state_action in enumerate(learning_progress):
             state_n = state_action[0]
             action_n = state_action[1]
-
-            # print(action_n)
 
             if ind == 0:
                 state_list[0] = state_n.clone()
@@ -724,112 +584,61 @@ class AYS_Environment(Env):
 
         # Plot from startpoint only one management option to see if green fix point is easy to reach:
         # self.plot_current_state_trajectories(ax3d)
-
-
         # ays_plot.plot_hairy_lines(20, ax3d)
 
-        # final_state = self.which_final_state().name
-        # if fname is not None:
-        #     plt.savefig(fname)
         plt.legend()
         # plt.show()
         plt.savefig('./plot_graphs/' + fname)
 
         return fig, ax3d
 
-    # def observed_states(self):
-    #     return self.dimensions
-
-    # def plot_current_state_trajectories(self, ax3d):
-    #     # Trajectories for the current state with all possible management options
-    #     time = np.linspace(0, 300, 1000)
-    #
-    #     for action_number in range(len(self.action_space)):
-    #         parameter_list = self._get_parameters(action_number)
-    #         my_color = self.color_list[action_number]
-    #         traj_one_step = odeint(ays.AYS_rescaled_rhs, self.current_state, time, args=parameter_list[0])
-    #         ax3d.plot3D(xs=traj_one_step[:, 0], ys=traj_one_step[:, 1], zs=traj_one_step[:, 2],
-    #                     color=my_color, alpha=.7, label=None)
-
-    # def save_traj_final_state(self, learners_path, file_path, episode):
-    #     final_state = self.which_final_state().name
-    #
-    #     states = np.array(learners_path)[:, 0]
-    #     start_state = states[0]
-    #     a_states = list(zip(*states))[0]
-    #     y_states = list(zip(*states))[1]
-    #     s_states = list(zip(*states))[2]
-    #
-    #     actions = np.array(learners_path)[:, 1]
-    #     rewards = np.array(learners_path)[:, 2]
-    #
-    #     full_file_path = file_path + '/DQN_Path/' + final_state + '/'
-    #     if not os.path.isdir(full_file_path):
-    #         os.makedirs(full_file_path)
-    #
-    #     text_path = (full_file_path +
-    #                  str(self.run_number) + '_' + 'path_' + str(start_state) + '_episode' + str(episode) + '.txt')
-    #     with open(text_path, 'w') as f:
-    #         f.write("# A  Y  S   Action   Reward \n")
-    #         for i in range(len(learners_path)):
-    #             f.write("%s  %s  %s   %s   %s \n" % (a_states[i], y_states[i], s_states[i], actions[i], rewards[i]))
-    #     f.close()
-    #     print('Saved :' + text_path)
-    #
-    # def save_traj(self, ax3d, fn):
-    #     ax3d.legend(loc='best', prop={'size': 12})
-    #     plt.savefig(fname=fn)
-    #     plt.close()
-
     def define_test_points(self):
-        testpoints = [
-            [0.49711988, 0.49849855, 0.5],
-            [0.48654806, 0.51625583, 0.5],
-            [0.48158348, 0.50938806, 0.5],
-            [0.51743486, 0.45828958, 0.5],
-            [0.52277734, 0.49468274, 0.5],
-            [0.49387675, 0.48199759, 0.5],
-            [0.45762969, 0.50656114, 0.5]
-        ]
+        testpoints = [[0.49711988, 0.49849855, 0.5],
+                      [0.48654806, 0.51625583, 0.5],
+                      [0.48158348, 0.50938806, 0.5],
+                      [0.51743486, 0.45828958, 0.5],
+                      [0.52277734, 0.49468274, 0.5],
+                      [0.49387675, 0.48199759, 0.5],
+                      [0.45762969, 0.50656114, 0.5]]
+
         return testpoints
 
     def test_Q_states(self):
         # The Q values are choosen here in the region of the knick and the corner
-        testpoints = [
-            [0.5, 0.5, 0.5],
-            [0.48158348, 0.50938806, 0.5],  # points around current state
-            [0.51743486, 0.45828958, 0.5],
-            [0.52277734, 0.49468274, 0.5],
-            [0.49711988, 0.49849855, 0.5],
-            [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],  # From here on for knick to green FP
-            [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
-            [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],
-            [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
-            [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
-            [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
-            [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],
-            [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
-            [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
-            [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
-            [0.565551647191721, 0.4446849282686741, 0.5514780427327116],
-            [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
-            [0.5732889740892303, 0.40670386098365746, 0.5555233190964499],
-            [0.575824650184652, 0.4053645419804867, 0.4723020776953208],
-            [0.5770448313058577, 0.4048031241155815, 0.418890921031026],  # From here on for knick to black FP
-            [0.5731695199856403, 0.40703303828389187, 0.5611291038925613],
-            [0.5742215704891825, 0.42075928220225944, 0.4638131691273601],
-            [0.5763299679962532, 0.411095026888074, 0.4294020150808698],
-            [0.5722546035810613, 0.41315124675768045, 0.5695919593600399],
-            [0.5762062083990029, 0.405168276738863, 0.4567816125395152],
-            [0.5762327254875753, 0.4052313013623205, 0.4568789522146076],
-            [0.5770448313058577, 0.4048031241155815, 0.418890921031026],
-            [0.5770448313058577, 0.4048031241155815, 0.418890921031026],
-            [0.5726685871808355, 0.40709323935138103, 0.5727121746516005],
-            [0.2841645298525685, 0.5742868996790442, 0.9699317116062534],  # From here on region of the shelter
-            [0.32909951420599637, 0.6082136751752725, 0.9751810127843358],
-            [0.5649255262907135, 0.4238116683903446, 0.8009508342049909],
-            [0.04143141196994614, 0.9467759116676885, 0.9972458138530155],
-        ]
+        testpoints = [[0.5, 0.5, 0.5],
+                      [0.48158348, 0.50938806, 0.5],  # points around current state
+                      [0.51743486, 0.45828958, 0.5],
+                      [0.52277734, 0.49468274, 0.5],
+                      [0.49711988, 0.49849855, 0.5],
+                      [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],  # From here on for knick to green FP
+                      [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
+                      [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],
+                      [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
+                      [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
+                      [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
+                      [0.5642881652513302, 0.4475774101441196, 0.5494879542441825],
+                      [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
+                      [0.5677565382994565, 0.4388184256945361, 0.5553589418072845],
+                      [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
+                      [0.565551647191721, 0.4446849282686741, 0.5514780427327116],
+                      [0.5667064632786063, 0.4417642808582638, 0.5534355600174762],
+                      [0.5732889740892303, 0.40670386098365746, 0.5555233190964499],
+                      [0.575824650184652, 0.4053645419804867, 0.4723020776953208],
+                      [0.5770448313058577, 0.4048031241155815, 0.418890921031026],  # From here on for knick to black FP
+                      [0.5731695199856403, 0.40703303828389187, 0.5611291038925613],
+                      [0.5742215704891825, 0.42075928220225944, 0.4638131691273601],
+                      [0.5763299679962532, 0.411095026888074, 0.4294020150808698],
+                      [0.5722546035810613, 0.41315124675768045, 0.5695919593600399],
+                      [0.5762062083990029, 0.405168276738863, 0.4567816125395152],
+                      [0.5762327254875753, 0.4052313013623205, 0.4568789522146076],
+                      [0.5770448313058577, 0.4048031241155815, 0.418890921031026],
+                      [0.5770448313058577, 0.4048031241155815, 0.418890921031026],
+                      [0.5726685871808355, 0.40709323935138103, 0.5727121746516005],
+                      [0.2841645298525685, 0.5742868996790442, 0.9699317116062534],  # From here on region of the shelter
+                      [0.32909951420599637, 0.6082136751752725, 0.9751810127843358],
+                      [0.5649255262907135, 0.4238116683903446, 0.8009508342049909],
+                      [0.04143141196994614, 0.9467759116676885, 0.9972458138530155]]
+
         return testpoints
 
     def test_reward_functions(self):

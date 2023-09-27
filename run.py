@@ -11,8 +11,8 @@ def main(args):
         chkpt_load_path = None
     marl_agent = MARL_agent(num_agents=args.num_agents, animation=args.animation, wandb_save=args.wandb_save,
                             model=args.model, test_actions=args.test_actions, top_down=args.top_down,
-                            chkpt_load=chkpt_load_path, chkpt_load_path=args.chkpt_load_path,
-                            reward_type=args.reward_type, obs_type=args.observation_type, load_multi=args.load_multi,
+                            chkpt_load=args.chkpt_load, chkpt_load_path=chkpt_load_path,
+                            reward_type=args.reward_type, obs_type=args.observation_type,
                             rational=args.rationality, trade_actions=args.trade_actions, maddpg=args.maddpg,
                             homogeneous=args.homogeneous, seed=args.random_seed, rational_choice=args.rational_choice)
 
@@ -31,10 +31,10 @@ def main(args):
     #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_15.tar",
     #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_98.tar",
     #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_44.tar",
-    #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_42.tar",
-    #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_98.tar",
+    #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_22.tar",
+    #               "./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, True]_rational_choice=2nd_best_episodes=2000/seed_68.tar",
     #               ]
-    # seed_list = [42, 15, 98, 44, 22, 68]  # TODO change these to [42, 15, 98, 44, 22, 68]
+    # seed_list = [42, 15, 98, 44, 22, 68]
     # agent_range = 6
     # results = [0] * agent_range
     # for agent in range(agent_range):
@@ -42,7 +42,6 @@ def main(args):
     #                             model=args.model, test_actions=args.test_actions, top_down=args.top_down,
     #                             chkpt_load=args.chkpt_load, chkpt_load_path=chkpt_list[agent],
     #                             reward_type=args.reward_type, obs_type=args.observation_type,
-    #                             load_multi=args.load_multi,
     #                             rational=args.rationality, trade_actions=args.trade_actions, maddpg=args.maddpg,
     #                             homogeneous=args.homogeneous, seed=seed_list[agent],
     #                             rational_choice=args.rational_choice)
@@ -74,27 +73,20 @@ if __name__ == "__main__":
 
     parser.add_argument('--chkpt_load', default=False)
     # parser.add_argument('--chkpt_load', default=True)
-    parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
+    # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_23-49-53.tar")  # hetero
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=2nd_best_episodes=2000/end_time=16-09-2023_21-12-05.tar")  # 2nd best irrationality
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=random_episodes=2000/end_time=15-09-2023_21-04-05.tar")  # random irrationality agent only
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=all_shared_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=random_episodes=2000/end_time=15-09-2023_19-19-57.tar")  # random irrationality all shared
-    parser.add_argument('--load_multi', default=False)  # TODO ALWAYS WANT THIS FALSE FAM
-    # parser.add_argument('--load_multi', default=True)
 
     # parser.add_argument('--reward_type', default=["PB"])
-    # parser.add_argument('--reward_type', default=["PB_new_new_new_new"])
+    # parser.add_argument('--reward_type', default=["IPB"])
     # parser.add_argument('--reward_type', default=["max_A"])
     # parser.add_argument('--reward_type', default=["max_Y"])
     parser.add_argument('--reward_type', default=["PB", "PB"])
     # parser.add_argument('--reward_type', default=["PB", "max_Y"])
-    # parser.add_argument('--reward_type', default=["PB_new", "max_Y"])
-    # parser.add_argument('--reward_type', default=["PB_new", "max_A"])
-    # parser.add_argument('--reward_type', default=["PB_new_new", "max_Y"])
-    # parser.add_argument('--reward_type', default=["PB_new_new", "max_A"])
-    # parser.add_argument('--reward_type', default=["PB_new_new_new", "max_Y"])
-    # parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_Y"])
-    # parser.add_argument('--reward_type', default=["PB_new_new_new_new", "max_A"])
+    # parser.add_argument('--reward_type', default=["IPB", "max_Y"])
+    # parser.add_argument('--reward_type', default=["IPB", "max_A"])
     # parser.add_argument('--reward_type', default=["PB", "max_E"])
 
     parser.add_argument('--observation_type', default="agent_only")
@@ -108,8 +100,8 @@ if __name__ == "__main__":
     parser.add_argument('--rational_choice', default="2nd_best")
     # parser.add_argument('--rational_choice', default="random")
 
-    parser.add_argument('--trade_actions', default=False)  # TODO currently only works for two agents atm
-    # parser.add_argument('--trade_actions', default=True)
+    # parser.add_argument('--trade_actions', default=False)  # currently only works for two agents atm
+    parser.add_argument('--trade_actions', default=True)
 
     parser.add_argument('--test_actions', default=False)
     # parser.add_argument('--test_actions', default=True)
@@ -120,11 +112,10 @@ if __name__ == "__main__":
     parser.add_argument('--random_seed', type=int, default=42)
     # parser.add_argument('--random_seed', type=int, default=15)
     # parser.add_argument('--random_seed', type=int, default=98)
-    #
     # parser.add_argument('--random_seed', type=int, default=44)
     # parser.add_argument('--random_seed', type=int, default=22)
     # parser.add_argument('--random_seed', type=int, default=68)
-    #
+
     arguments = parser.parse_args()
     main(arguments)
 

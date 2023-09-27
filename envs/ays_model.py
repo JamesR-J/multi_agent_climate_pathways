@@ -18,23 +18,6 @@ MANAGEMENTS = {
     "carbon-capture-storage": "ccs",
 }
 
-# def get_management_parameter_dict(management, all_parameters):
-#     management_dict = dict(all_parameters) # make a copy
-#     if management == DEFAULT_NAME:
-#         return management_dict
-#     ending = "_" + MANAGEMENTS[management].upper()
-#     changed = False
-#     for key in management_dict:
-#         # choose the variables that are changed by the ending
-#         if key+ending in management_dict:
-#             changed = True
-#             management_dict[key] = management_dict[key+ending]
-#     if not changed:
-#         raise NameError("didn't find any parameter for management option "\
-#                         "'{}' (ending '{}')".format(management, ending))
-#     return management_dict
-
-
 AYS_parameters = {}
 AYS_parameters["A_offset"] = 600  # pre-industrial level corresponds to A=0
 AYS_parameters["beta"] = 0.03  # 1/yr
@@ -152,33 +135,20 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     ays_inv_s_rho_matrix = ays_inv_matrix.clone()
     ays_inv_s_rho_matrix[:, 2] = ays_inv_s_rho_matrix[:, 2] ** args[:, 3]
     # A_matrix = (A_mid * ays_matrix[:, 0] / ays_inv_matrix[:, 0]).view(2, 1)
-    A_matrix = (A_mid * ays_matrix[0, 0].repeat(num_agents, 1) / ays_inv_matrix[0, 0].repeat(num_agents, 1)).view(num_agents, 1)  # TODO is this okay?? just taken the first value and left it assumed as that lol
+    A_matrix = (A_mid * ays_matrix[0, 0].repeat(num_agents, 1) / ays_inv_matrix[0, 0].repeat(num_agents, 1)).view(num_agents, 1)
     Y_matrix = (W_mid * ays_matrix[:, 1] / ays_inv_matrix[:, 1]).view(num_agents, 1)
     K_matrix = (ays_inv_s_rho_matrix[:, 2] / (ays_inv_s_rho_matrix[:, 2] + (S_mid * ays_matrix[:, 2] / args[:, 4]) ** args[:, 3])).view(num_agents, 1)
     E_matrix = K_matrix / (args[:, 2] * args[:, 1]).view(num_agents, 1) * Y_matrix
-    E_tot = torch.sum(E_matrix).repeat(num_agents, 1) / num_agents  # TODO this divide by num_agents is an awful fix but it currently works lol
+    E_tot = torch.sum(E_matrix).repeat(num_agents, 1) / num_agents
 
-    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)  # TODO done the same here need to check if okay as taking the first value
+    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)
     ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix * args[:, 8].view(num_agents, 1))
     sdot = (1 - K_matrix) * (ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2]).view(num_agents, 1) * Y_matrix / (args[:, 1] * S_mid).view(num_agents, 1) - (ays_matrix[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]).view(num_agents, 1)
 
-    E_matrix /= 20  # 1003.04  # TODO 1003.04 is the max but just using 20 for now
+    E_matrix /= 20  # 1003.04  # 1003.04 is the max but just using 20 for now
     final_matrix = torch.cat((adot, ydot, sdot, E_matrix), dim=1)
 
     return final_matrix.flatten()
-
-
-# # @jit(nopython=NB_USING_NOPYTHON)
-# def AYS_sunny_PB(ays):
-#     return ays[:, 0] < A_PB / (A_PB + A_mid) # transformed A_PB  # planetary boundary
-#
-# # @jit(nopython=NB_USING_NOPYTHON)
-# def AYS_sunny_SF(ays):
-#     return ays[:, 1] > W_SF / (W_SF + W_mid) # transformed W_SF  # social foundation
-#
-# # @jit(nopython=NB_USING_NOPYTHON)
-# def AYS_sunny_PB_SF(ays):
-#     return np.logical_and(ays[:, 0] < A_PB / (A_PB + A_mid), ays[:, 1] > W_SF / (W_SF + W_mid)) # both transformed
 
 
 

@@ -7,8 +7,8 @@ import seaborn as sns
 sns.set(font_scale=0.8)
 
 
-df1 = pd.read_csv("./wandb_csv_data/maxY_actions.csv")
-df2 = pd.read_csv("./wandb_csv_data/maxY_episode_rewards.csv")
+df1 = pd.read_csv("wandb_csv_data/maxY_actions.csv")
+df2 = pd.read_csv("wandb_csv_data/maxY_episode_rewards.csv")
 
 merged_df = pd.merge(df1, df2, on='Step', how='outer').sort_values('Step')
 

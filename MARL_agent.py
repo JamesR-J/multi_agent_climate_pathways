@@ -1,14 +1,13 @@
 import random
-import time
 from datetime import datetime
 
 from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
-from learn import utils
+from agent_algos import utils
 import wandb
-from rl_algos import DQN, DuelDDQN, MADDPG
+from agent_algos.rl_algos import DQN, D3QN, MADDPG
 from envs.ricen import RiceN
-import learn.gradient_estimators
+import agent_algos.gradient_estimators
 
 import matplotlib.pyplot as plt
 
@@ -90,9 +89,11 @@ class MARL_agent:
         self.top_down = top_down
 
         # self.agent_str = "DQN"
-        self.agent_str = "DuelDDQN"
+        self.agent_str = "D3QN"
         if self.maddpg:
             self.agent_str = "MADDPG"
+
+        print("Using the {} algorithm".format(self.agent_str))
 
         self.chkpt_load = chkpt_load
         self.chkpt_load_path = chkpt_load_path
@@ -101,8 +102,10 @@ class MARL_agent:
 
         if self.chkpt_load:
             if not self.maddpg:
-                self.episode_count = torch.load(self.chkpt_load_path)['episode_count']  # TODO add this episode count to the maddpg save file
-                self.max_episodes += self.episode_count
+                self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
+            else:
+                self.episode_count = 2000  # change this hard-coding ep length
+            self.max_episodes += self.episode_count
 
         if self.episode_count > 0:
             epsilon = 0.99
@@ -116,17 +119,17 @@ class MARL_agent:
 
         self.rational_ep = [True] * self.num_agents
         self.irrational_end = [0] * self.num_agents
-        self.rational_const = 0.1  # TODO tweak this param as well for rationality amount
+        self.rational_const = 0.1  # tweak this param as well for rationality amount
         print("Rational behaviour: {}".format(self.rational))
         if not all(self.rational):
             print("Rational choice: {}".format(self.rational_choice))
 
-        self.gradient_estimator = learn.gradient_estimators.STGS(1.0)
+        self.gradient_estimator = agent_algos.gradient_estimators.STGS(1.0)
 
         if self.agent_str == "DQN":
             self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
-        elif self.agent_str == "DuelDDQN":
-            self.agent = [DuelDDQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+        elif self.agent_str == "D3QN":
+            self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
         elif self.agent_str == "MADDPG":
             self.agent = MADDPG(
                                     env=self.env,
@@ -197,8 +200,8 @@ class MARL_agent:
         test_states = torch.zeros((n_points, self.num_agents, 1))
 
         # y
-        lower_bound = 0.35
-        upper_bound = 0.65
+        # lower_bound = 0.35
+        # upper_bound = 0.65
 
         # epsilon
         # lower_bound = 160-40
@@ -299,7 +302,7 @@ class MARL_agent:
 
         self.data['episodes'] += 1
 
-        if self.model == 'ays':  # TODO redo this for ricen
+        if self.model == 'ays':
             final_states = [self.env.which_final_state(agent).name for agent in range(self.num_agents)]
             self.data['final_point'].append(final_states)
 
@@ -314,7 +317,7 @@ class MARL_agent:
                 wandb.log({label_1: episode_reward[agent], label_2: self.data['moving_avg_rewards'][-1][agent][
                     0], "train/episode": episode})
 
-        if self.model == 'ays':  # TODO redo this for ricen
+        if self.model == 'ays':
             print("Episode:", self.data['episodes'], "|| Reward:", round(episode_reward), "|| Final State ",
                   self.env.which_final_state().name) \
                 if self.verbose else None
@@ -324,7 +327,7 @@ class MARL_agent:
             if self.rational_ep[agent]:
                 if np.random.uniform() < self.rational_const:
                     self.rational_ep[agent] = False
-                    self.irrational_end[agent] = step + np.random.randint(1, 10)  # TODO adjust this range
+                    self.irrational_end[agent] = step + np.random.randint(1, 10)  # adjust this range for irrationality
             else:
                 if step == self.irrational_end[agent]:
                     self.rational_ep[agent] = True
@@ -348,10 +351,7 @@ class MARL_agent:
                 )
             else:
                 for agent in range(self.num_agents):
-                    if self.load_multi:
-                        chkpt_string = 'agent_0'
-                    else:
-                        chkpt_string = 'agent_' + str(agent)  # TODO maybe add a check here so cant load a single agent into a multi agent unless self.load_multi is true, and then vice versa or so
+                    chkpt_string = 'agent_' + str(agent)
                     self.agent[agent].target_net.load_state_dict(checkpoint[chkpt_string + '_target_state_dict'])
                     self.agent[agent].policy_net.load_state_dict(checkpoint[chkpt_string + '_policy_state_dict'])
                     self.agent[agent].optimizer.load_state_dict(checkpoint[chkpt_string + '_optimiser_state_dict'])
@@ -380,7 +380,7 @@ class MARL_agent:
             wandb.define_metric("train/episode")
             wandb.define_metric("train/*", step_metric="train/episode")
 
-        if self.agent_str == "DuelDDQN":
+        if self.agent_str == "D3QN":
             memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
@@ -388,9 +388,7 @@ class MARL_agent:
             memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
         for episodes in range(self.max_episodes):
-
-            # reset environment to a random state (0.5, 0.5, 0.5) * gaussian noise
-            state_n, obs_n = self.env.reset()  # TODO check this stuff
+            state_n, obs_n = self.env.reset()
             self.early_finish = [False] * self.num_agents
             episode_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
@@ -439,7 +437,7 @@ class MARL_agent:
                             episode_reward[agent] += reward[agent]
                             memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
                             if len(memory[agent]) > self.batch_size:
-                                if self.agent_str == "DuelDDQN":
+                                if self.agent_str == "D3QN":
                                     self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
                                     sample = memory[agent].sample(self.batch_size, self.beta)
                                     loss, tds = self.agent[agent].update(
@@ -457,7 +455,7 @@ class MARL_agent:
                                 wandb.log({label: loss}) if self.wandb_save else None
                             if done[agent]:
                                 self.early_finish[agent] = True
-                        # else:  # TODO allows another agent to carry on running even if one has reached final state
+                        # else:  # allows another agent to carry on running even if one has reached final state
                         #     next_state[agent] = state_n[agent].clone()
 
                 obs_n = next_obs.clone()
@@ -488,7 +486,6 @@ class MARL_agent:
                     plt.pause(0.00001)
 
                 if torch.all(done):
-                # if torch.any(done):  # TODO but means that the early ended agent won't get more reward as doesnt get final count function thing - see if it matters I guess
                     break
 
             if self.animation:
@@ -501,17 +498,9 @@ class MARL_agent:
             self.append_data(episode_reward, episodes)
 
             if self.agent_str == "MADDPG":
-                # if (not config.disable_training):
-                    for _ in range(1):
-                        sample = memory.sample()
-                        if sample is not None:
-                            self.agent.update(sample)
-                    # if config.log_grad_variance and elapsed_steps % config.log_grad_variance_interval == 0:
-                    #     for agent in maddpg.agents:
-                    #         for name, param in agent.policy.named_parameters():
-                    #             wandb.log({
-                    #                 f"{agent.agent_idx}-{name}-grad": torch.var(param.grad).item(),
-                    #             }, step=elapsed_steps)
+                sample = memory.sample()
+                if sample is not None:
+                    self.agent.update(sample)
 
         self.episode_count += self.max_episodes
 
@@ -555,6 +544,3 @@ class MARL_agent:
 
         if self.animation:
             plt.ioff()
-
-# if __name__ == "__main__":
-#     return
