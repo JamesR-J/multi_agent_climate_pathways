@@ -51,14 +51,16 @@ class ActorNetwork(nn.Module):
     def __init__(self, obs_dim, hidden_dim_width, n_actions):
         super().__init__()
         self.obs_dim = obs_dim
-        self.layers = nn.Sequential(*[
-            nn.Linear(obs_dim, hidden_dim_width), nn.ReLU(),
-            nn.Linear(hidden_dim_width, hidden_dim_width), nn.ReLU(),
-            nn.Linear(hidden_dim_width, n_actions),
-        ])
+        self.L1 = nn.Linear(obs_dim, hidden_dim_width)
+        self.L2 = nn.Linear(hidden_dim_width, hidden_dim_width)
+        self.final = nn.Linear(hidden_dim_width, n_actions)
 
     def forward(self, obs):
-        return self.layers(obs.float())
+        obs = F.relu(self.L1(obs.float()))
+        obs = F.relu(self.L2(obs))
+        obs = F.tanh(self.final(obs))  # TODO check the tanh here need to scale etc
+
+        return obs
 
     def hard_update(self, source):
         for target_param, source_param in zip(self.parameters(), source.parameters()):
@@ -72,18 +74,17 @@ class ActorNetwork(nn.Module):
 class CriticNetwork(nn.Module):
     def __init__(self, all_obs_dims, all_acts_dims, hidden_dim_width):
         super().__init__()
-        input_size = sum(all_obs_dims) + sum(all_acts_dims)
-
-        self.layers = nn.Sequential(*[
-            nn.Linear(input_size, hidden_dim_width),
-            nn.ReLU(),
-            nn.Linear(hidden_dim_width, hidden_dim_width),
-            nn.ReLU(),
-            nn.Linear(hidden_dim_width, 1),
-        ])
+        input_size = all_obs_dims + all_acts_dims
+        self.L1 = nn.Linear(input_size, hidden_dim_width)
+        self.L2 = nn.Linear(hidden_dim_width, hidden_dim_width)
+        self.final = nn.Linear(hidden_dim_width, 1)
 
     def forward(self, obs_and_acts):
-        return self.layers(obs_and_acts)
+        obs = F.relu(self.L1(obs_and_acts))
+        obs = F.relu(self.L2(obs))
+        obs = self.final(obs)
+
+        return obs
 
     def hard_update(self, source):
         for target_param, source_param in zip(self.parameters(), source.parameters()):
@@ -316,6 +317,72 @@ class Agent:
     def soft_update(self):
         self.target_critic.soft_update(self.critic, self.soft_update_size)
         self.target_policy.soft_update(self.policy, self.soft_update_size)
+
+
+
+class DDPG:
+    def __init__(
+            self,
+            num_obs: int,
+            num_actions: int,
+            critic_lr: float,
+            actor_lr: float,
+            gradient_clip: float,
+            num_hidden: int,
+            gamma: float,
+            soft_update_size: float,
+    ):
+        self.actor = ActorNetwork(num_obs, num_hidden, num_actions)
+        self.actor_target = ActorNetwork(num_obs, num_hidden, num_actions)
+        self.critic = CriticNetwork(num_obs, num_actions, num_hidden)
+        self.critic_target = CriticNetwork(num_obs, num_actions, num_hidden)
+
+        self.actor_target.hard_update(self.actor)
+        self.critic_target.hard_update(self.critic)
+
+        self.optim_actor = Adam(self.actor.parameters(), lr=actor_lr, eps=0.001)
+        self.optim_critic = Adam(self.critic.parameters(), lr=critic_lr, eps=0.001)
+
+        self.gamma = gamma
+        self.soft_update_size = soft_update_size
+        self.gradient_clip = gradient_clip
+
+    def acts(self, obs):
+        return self.actor(obs)
+
+    def update(self, sample):
+        state, action, reward, next_state, done = sample
+        self.update_critic(state, action, reward, next_state)
+        self.update_actor(state)
+
+        self.critic_target.soft_update(self.critic, self.soft_update_size)
+        self.actor_target.soft_update(self.actor, self.soft_update_size)
+
+    def update_critic(self, state, action, reward, next_state):
+        Q_curr = self.critic(torch.concat((state, action), dim=1))
+        next_action = self.actor_target(next_state)
+        Q_next = self.critic_target(torch.concat(next_state, next_action), dim=1)
+
+        y_target = reward + self.gamma * Q_next
+
+        critic_loss = F.mse_loss(y_target, Q_curr)
+
+        self.optim_critic.zero_grad()
+        critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.gradient_clip)
+        self.optim_critic.step()
+
+        return next_action
+
+    def update_actor(self, state):
+        actor_loss = - self.critic(torch.concat((state, self.actor(state)), axis=1)).mean()
+
+        self.optim_actor.zero_grad()
+        actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.gradient_clip)
+        self.optim_actor.step()
+
+
 
 
 class MADDPG:

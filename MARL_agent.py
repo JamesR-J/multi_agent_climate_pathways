@@ -5,8 +5,8 @@ from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
 from agent_algos import utils
 import wandb
-from agent_algos.rl_algos import DQN, D3QN, MADDPG
-from envs.ricen import RiceN
+from agent_algos.rl_algos import DQN, D3QN, DDPG, MADDPG
+# from envs.ricen import RiceN
 import agent_algos.gradient_estimators
 
 import matplotlib.pyplot as plt
@@ -45,8 +45,9 @@ class MARL_agent:
                                        gamma=self.gamma, obs_type=self.obs_type, trade_actions=trade_actions,
                                        homogeneous=self.homogeneous)
         elif self.model == "rice-n":
-            self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
-                             max_steps=max_steps, discount=self.gamma)
+            sys.exit(0)
+            # self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
+            #                  max_steps=max_steps, discount=self.gamma)
         self.state_dim = len(self.env.observation_space[0])
         self.action_dim = len(self.env.action_space)
 
@@ -88,9 +89,9 @@ class MARL_agent:
         self.animation = animation
         self.top_down = top_down
 
-        # self.agent_str = "DQN"
-        self.agent_str = "D3QN"
-        if self.maddpg:
+        if self.num_agents == 1:
+            self.agent_str = "DDPG"
+        else:
             self.agent_str = "MADDPG"
 
         print("Using the {} algorithm".format(self.agent_str))
@@ -124,12 +125,21 @@ class MARL_agent:
         if not all(self.rational):
             print("Rational choice: {}".format(self.rational_choice))
 
-        self.gradient_estimator = agent_algos.gradient_estimators.STGS(1.0)
-
-        if self.agent_str == "DQN":
-            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
-        elif self.agent_str == "D3QN":
-            self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+        # if self.agent_str == "DQN":
+        #     self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+        # elif self.agent_str == "D3QN":
+        #     self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+        if self.agent_str == "DDPG":
+            self.agent = DDPG(
+                self.state_dim,
+                self.action_dim,
+                critic_lr=3e-4,
+                actor_lr=3e-4,
+                gradient_clip=1.0,
+                num_hidden=64,
+                gamma=0.95,
+                soft_update_size=0.01,
+            )
         elif self.agent_str == "MADDPG":
             self.agent = MADDPG(
                                     env=self.env,
@@ -380,12 +390,12 @@ class MARL_agent:
             wandb.define_metric("train/episode")
             wandb.define_metric("train/*", step_metric="train/episode")
 
-        if self.agent_str == "D3QN":
-            memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
+        if self.agent_str == "DDPG":
+            memory = utils.DDPG_ReplayBuffer(self.buffer_size)
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
-        else:
-            memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
+        # else:
+        #     memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
         for episodes in range(self.max_episodes):
             state_n, obs_n = self.env.reset()
@@ -405,10 +415,12 @@ class MARL_agent:
                 for agent in range(self.num_agents):
                     self.rational_calc(agent, i)
 
-                if self.agent_str == "MADDPG":
-                    action_n = self.agent.acts(obs_n)
-                else:
-                    action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
+                # if self.agent_str == "MADDPG":
+                #     action_n = self.agent.acts(obs_n)
+                # else:
+                #     action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
+
+                action_n = self.agent.acts(obs_n)
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
@@ -432,29 +444,40 @@ class MARL_agent:
                         if done[agent]:
                             self.early_finish[agent] = True
                 else:
-                    for agent in range(self.num_agents):
-                        # if not self.early_finish[agent]:
-                            episode_reward[agent] += reward[agent]
-                            memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
-                            if len(memory[agent]) > self.batch_size:
-                                if self.agent_str == "D3QN":
-                                    self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
-                                    sample = memory[agent].sample(self.batch_size, self.beta)
-                                    loss, tds = self.agent[agent].update(
-                                        (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
-                                         sample['done']),
-                                        weights=sample['weights']
-                                    )
-                                    new_tds = np.abs(tds.cpu().numpy()) + 1e-6
-                                    memory[agent].update_priorities(sample['indexes'], new_tds)
-                                else:
-                                    sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
-                                    loss, _ = self.agent[agent].update(sample)
+                    if not self.early_finish[0]:
+                        episode_reward[0] += reward[0]
+                        memory.push(obs_n[0], action_n[0], reward[0], next_obs[0], done[0])
+                        sample = memory.sample(self.batch_size)  # shape(5,128,xxx)
+                        loss, _ = self.agent.update(sample)
 
-                                label = "train/loss_agent_" + str(agent)
-                                wandb.log({label: loss}) if self.wandb_save else None
-                            if done[agent]:
-                                self.early_finish[agent] = True
+                        label = "train/loss_agent_" + str(0)
+                        wandb.log({label: loss}) if self.wandb_save else None
+                        if done[0]:
+                            self.early_finish[0] = True
+
+                    # for agent in range(self.num_agents):
+                    #     # if not self.early_finish[agent]:
+                    #         episode_reward[agent] += reward[agent]
+                    #         memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
+                    #         if len(memory[agent]) > self.batch_size:
+                    #             if self.agent_str == "D3QN":
+                    #                 self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
+                    #                 sample = memory[agent].sample(self.batch_size, self.beta)
+                    #                 loss, tds = self.agent[agent].update(
+                    #                     (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
+                    #                      sample['done']),
+                    #                     weights=sample['weights']
+                    #                 )
+                    #                 new_tds = np.abs(tds.cpu().numpy()) + 1e-6
+                    #                 memory[agent].update_priorities(sample['indexes'], new_tds)
+                    #             else:
+                    #                 sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
+                    #                 loss, _ = self.agent[agent].update(sample)
+                    #
+                    #             label = "train/loss_agent_" + str(agent)
+                    #             wandb.log({label: loss}) if self.wandb_save else None
+                    #         if done[agent]:
+                    #             self.early_finish[agent] = True
                         # else:  # allows another agent to carry on running even if one has reached final state
                         #     next_state[agent] = state_n[agent].clone()
 

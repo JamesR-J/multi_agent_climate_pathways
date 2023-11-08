@@ -8,8 +8,8 @@ in combination with the DRL-agent.
 """
 
 import sys
-import torch
 import os
+import torch
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -52,9 +52,6 @@ class AYS_Environment(Env):
           In each grid point the agent can choose between subsidy None, A, B or A and B in combination.
     """
     dimensions = np.array(['A', 'Y', 'S'])
-    management_options = ['default', 'LG', 'ET', 'LG+ET']
-    action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
-    action_space_number = np.arange(len(action_space))
 
     tau_A = 50  # carbon decay - single val
     tau_S = 50  # renewable knowledge stock decay - multi val
@@ -118,6 +115,11 @@ class AYS_Environment(Env):
         self.X_MID = [240, 7e13, 501.5198]
 
         self.trade_actions = trade_actions
+
+        management_options = ['default', 'LG', 'ET', 'LG+ET']
+        self.action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
+        self.action_space = torch.tensor([0])
+        self.action_space_number = np.arange(len(self.action_space))
 
         if self.trade_actions:
             self.action_space = torch.tensor(
@@ -504,33 +506,36 @@ class AYS_Environment(Env):
              Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
         """
         if action is None:
-            action = torch.tensor([0]).repeat(self.num_agents, 1)
+            action = torch.tensor([0.0, 0.0, 0.0]).repeat(self.num_agents, 1)
 
-        selected_rows = self.action_space[action.squeeze(), :]
-        if self.trade_actions:
-            action_matrix = selected_rows.view(self.num_agents, 3)
-        else:
-            action_matrix = selected_rows.view(self.num_agents, 2)
+        # selected_rows = self.action_space[action.squeeze(), :]
+        # if self.trade_actions:
+        #     action_matrix = selected_rows.view(self.num_agents, 3)
+        # else:
+        #     action_matrix = selected_rows.view(self.num_agents, 2)
+        #
+        # mask_1 = action_matrix[:, 0].unsqueeze(1)
+        # mask_2 = action_matrix[:, 1].unsqueeze(1)
+        # if self.trade_actions:
+        #     mask_3 = action_matrix[:, 2].unsqueeze(1)
+        # else:
+        #     mask_3 = torch.tensor([False]).repeat(self.num_agents, 1)
+        #
+        # if torch.all(mask_3):
+        #     pass
+        # elif torch.any(mask_3):
+        #     mask_3 = ~mask_3
+        # else:
+        #     pass
 
-        mask_1 = action_matrix[:, 0].unsqueeze(1)
-        mask_2 = action_matrix[:, 1].unsqueeze(1)
-        if self.trade_actions:
-            mask_3 = action_matrix[:, 2].unsqueeze(1)
-        else:
-            mask_3 = torch.tensor([False]).repeat(self.num_agents, 1)
+        # beta = torch.where(mask_1, self.beta_LG, self.beta)
+        # sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
+        # trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # only works with 2 agents atm need to change that later on
 
-        if torch.all(mask_3):
-            pass
-        elif torch.any(mask_3):
-            mask_3 = ~mask_3
-        else:
-            pass
+        action = torch.cat((action[0], torch.tensor([4e12, 0.0])), dim=0).view(self.num_agents, 3)  # TODO adjust this dodgyness for now
+        # TODO implement trade thing again as it does not work atm basically
 
-        beta = torch.where(mask_1, self.beta_LG, self.beta)
-        sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
-        trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # only works with 2 agents atm need to change that later on
-
-        parameter_matrix = torch.cat((beta, self.eps, self.phi, self.rho, sigma, self.tau_A, self.tau_S, self.theta, trade), dim=1)
+        parameter_matrix = torch.cat((action[:, 0].view(self.num_agents, 1), self.eps, self.phi, self.rho, action[:, 1].view(self.num_agents, 1), self.tau_A, self.tau_S, self.theta, action[:, 2].view(self.num_agents, 1)), dim=1)
 
         return parameter_matrix
 
