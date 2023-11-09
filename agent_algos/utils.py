@@ -39,28 +39,40 @@ class ReplayBuffer:
 
 
 class DDPG_ReplayBuffer:
-    def __init__(self, capacity):
+    def __init__(self, capacity, action_dim):
         self.capacity = capacity
-        self.buffer = []
-        self.position = 0
+        self.entries = 0
 
-    def push(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
+        self.memory_obs = Tensor(self.capacity, action_dim)
+        self.memory_nobs = Tensor(self.capacity, action_dim)
+        self.memory_acts = Tensor(self.capacity)
+        self.memory_rwds = Tensor(self.capacity)
+        self.memory_dones = Tensor(self.capacity)
+
+    def push(self, obs, action, reward, nobs, done):
+        store_index = self.entries % self.capacity
+
+        self.memory_obs[store_index] = Tensor(obs)
+        self.memory_nobs[store_index] = Tensor(nobs)
+        self.memory_acts[store_index] = Tensor(action)  # TODO will need an action dim too
+        self.memory_rwds[store_index] = Tensor(reward)
+        self.memory_dones[store_index] = Tensor(done)
+
+        self.entries += 1
 
     def sample(self, batch_size):
-        print(self.buffer)
-        print(batch_size)
-        # sys.exit()
-        batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
+        if not self.ready(batch_size): return None
 
-    def __len__(self):
-        return len(self.buffer)
+        idxs = np.random.choice(
+            np.min((self.entries, self.capacity)),
+            size=(batch_size,),
+            replace=False,
+        )
 
+        return self.memory_obs[idxs], self.memory_acts[idxs], self.memory_rwds[idxs], self.memory_nobs[idxs], self.memory_dones[idxs]
+
+    def ready(self, batch_size):
+        return (batch_size <= self.entries)
 
 class PER_IS_ReplayBuffer:
     """

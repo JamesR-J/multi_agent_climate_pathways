@@ -391,7 +391,7 @@ class MARL_agent:
             wandb.define_metric("train/*", step_metric="train/episode")
 
         if self.agent_str == "DDPG":
-            memory = utils.DDPG_ReplayBuffer(self.buffer_size)
+            memory = utils.DDPG_ReplayBuffer(self.buffer_size, self.state_dim)
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         # else:
@@ -448,7 +448,8 @@ class MARL_agent:
                         episode_reward[0] += reward[0]
                         memory.push(obs_n[0], action_n[0], reward[0], next_obs[0], done[0])
                         sample = memory.sample(self.batch_size)  # shape(5,128,xxx)
-                        loss, _ = self.agent.update(sample)
+                        if sample is not None:
+                            loss, _ = self.agent.update(sample)
 
                         label = "train/loss_agent_" + str(0)
                         wandb.log({label: loss}) if self.wandb_save else None

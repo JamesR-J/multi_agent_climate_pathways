@@ -348,7 +348,7 @@ class DDPG:
         self.gradient_clip = gradient_clip
 
     def acts(self, obs):
-        return self.actor(obs)
+        return self.actor(obs).detach()
 
     def update(self, sample):
         state, action, reward, next_state, done = sample
@@ -358,12 +358,14 @@ class DDPG:
         self.critic_target.soft_update(self.critic, self.soft_update_size)
         self.actor_target.soft_update(self.actor, self.soft_update_size)
 
-    def update_critic(self, state, action, reward, next_state):
-        Q_curr = self.critic(torch.concat((state, action), dim=1))
-        next_action = self.actor_target(next_state)
-        Q_next = self.critic_target(torch.concat(next_state, next_action), dim=1)
+        return 0, 10  # TODO implement actual loss here if needed
 
-        y_target = reward + self.gamma * Q_next
+    def update_critic(self, state, action, reward, next_state):
+        Q_curr = self.critic(torch.cat((state, action.view(-1, 1)), dim=1))  # TODO is this flatten right?
+        next_action = self.actor_target(next_state)
+        Q_next = self.critic_target(torch.cat((next_state, next_action), dim=1))
+
+        y_target = reward.view(-1, 1) + self.gamma * Q_next
 
         critic_loss = F.mse_loss(y_target, Q_curr)
 
@@ -375,7 +377,7 @@ class DDPG:
         return next_action
 
     def update_actor(self, state):
-        actor_loss = - self.critic(torch.concat((state, self.actor(state)), axis=1)).mean()
+        actor_loss = - self.critic(torch.cat((state, self.actor(state)), axis=1)).mean()
 
         self.optim_actor.zero_grad()
         actor_loss.backward()
