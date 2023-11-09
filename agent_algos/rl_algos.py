@@ -361,7 +361,7 @@ class DDPG:
         return 0, 10  # TODO implement actual loss here if needed
 
     def update_critic(self, state, action, reward, next_state):
-        Q_curr = self.critic(torch.cat((state, action.view(-1, 1)), dim=1))  # TODO is this flatten right?
+        Q_curr = self.critic(torch.cat((state, action), dim=1))
         next_action = self.actor_target(next_state)
         Q_next = self.critic_target(torch.cat((next_state, next_action), dim=1))
 

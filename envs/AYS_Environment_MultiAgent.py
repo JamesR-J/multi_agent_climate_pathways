@@ -118,7 +118,7 @@ class AYS_Environment(Env):
 
         management_options = ['default', 'LG', 'ET', 'LG+ET']
         self.action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
-        self.action_space = torch.tensor([0])
+        self.action_space = torch.tensor([0, 0])
         self.action_space_number = np.arange(len(self.action_space))
 
         if self.trade_actions:
@@ -182,12 +182,12 @@ class AYS_Environment(Env):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            # if self.reward_type[agent] == "PB":  #  or self.reward_type[agent] == "PB_new_new_new_new":
-            #     if not self._inside_planetary_boundaries(agent):
-            #         self.final_state[agent] = True
-            # else:
-            #     if not self._inside_A_pb(agent):
-            #         self.final_state[agent] = True
+            if self.reward_type[agent] == "PB":  #  or self.reward_type[agent] == "PB_new_new_new_new":
+                if not self._inside_planetary_boundaries(agent):
+                    self.final_state[agent] = True
+            else:
+                if not self._inside_A_pb(agent):
+                    self.final_state[agent] = True
 
         # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state  # this is the One Stop strategy
         #     if torch.any(self.final_state):
@@ -505,7 +505,7 @@ class AYS_Environment(Env):
             -action_number: Number of the action in the actionset.
              Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
         """
-        action = None
+        # action = None
         if action is None:
             action = torch.tensor([0.03, 4e12, 1.0]).repeat(self.num_agents, 1)
 
@@ -533,9 +533,14 @@ class AYS_Environment(Env):
         # sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
         # trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # only works with 2 agents atm need to change that later on
 
-        # action = torch.cat((action[0], torch.tensor([4e12, 1.0])), dim=0).view(self.num_agents, 3)  # TODO adjust this dodgyness for now
+        # -1 to 1
+        # 0.015 to 0.03
+        # ( (old_value - old_min) / (old_max - old_min) ) * (new_max - new_min) + new_min
+        action[:, 0] = ((action[:, 0] - (-1)) / (1 - (-1))) * (0.035 - 0.01) + 0.01  # TODO dodgy fix range change
+        action[:, 1] = ((action[:, 1] - (-1)) / (1 - (-1))) * (5e12 - 1.8284e12) + 1.8284e12  # TODO dodgy fix range change
+        action = torch.cat((action[0], torch.tensor([1.0])), dim=0).view(self.num_agents, 3)  # TODO adjust this dodgyness for now
         # TODO implement trade thing again as it does not work atm basically
-        # print(action[0])
+        print(action[0])
 
         parameter_matrix = torch.cat((action[:, 0].view(self.num_agents, 1), self.eps, self.phi, self.rho, action[:, 1].view(self.num_agents, 1), self.tau_A, self.tau_S, self.theta, action[:, 2].view(self.num_agents, 1)), dim=1)
 

@@ -39,13 +39,13 @@ class ReplayBuffer:
 
 
 class DDPG_ReplayBuffer:
-    def __init__(self, capacity, action_dim):
+    def __init__(self, capacity, obs_dim, action_dim):
         self.capacity = capacity
         self.entries = 0
 
-        self.memory_obs = Tensor(self.capacity, action_dim)
-        self.memory_nobs = Tensor(self.capacity, action_dim)
-        self.memory_acts = Tensor(self.capacity)
+        self.memory_obs = Tensor(self.capacity, obs_dim)
+        self.memory_nobs = Tensor(self.capacity, obs_dim)
+        self.memory_acts = Tensor(self.capacity, action_dim)
         self.memory_rwds = Tensor(self.capacity)
         self.memory_dones = Tensor(self.capacity)
 

@@ -391,7 +391,7 @@ class MARL_agent:
             wandb.define_metric("train/*", step_metric="train/episode")
 
         if self.agent_str == "DDPG":
-            memory = utils.DDPG_ReplayBuffer(self.buffer_size, self.state_dim)
+            memory = utils.DDPG_ReplayBuffer(self.buffer_size, self.state_dim, self.action_dim)
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         # else:
