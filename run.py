@@ -57,8 +57,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--animation', default=False)
-    parser.add_argument('--animation', default=True)
+    parser.add_argument('--animation', default=False)
+    # parser.add_argument('--animation', default=True)
     parser.add_argument('--top_down', default=False)
     # parser.add_argument('--top_down', default=True)
 
