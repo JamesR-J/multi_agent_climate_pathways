@@ -294,8 +294,8 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
             else:
                 new_formatters.append(el)
         formatters = new_formatters
-    ax3d.w_yaxis.set_major_locator(ticker.FixedLocator(locators))
-    ax3d.w_yaxis.set_major_formatter(ticker.FixedFormatter(formatters))
+    ax3d.yaxis.set_major_locator(ticker.FixedLocator(locators))
+    ax3d.yaxis.set_major_formatter(ticker.FixedFormatter(formatters))
 
     transf = ft.partial(compactification, x_mid=current_state[2])
     inv_transf = ft.partial(inv_compactification, x_mid=current_state[2])
@@ -317,8 +317,8 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
             else:
                 new_formatters.append(el)
         formatters = new_formatters
-    ax3d.w_zaxis.set_major_locator(ticker.FixedLocator(locators))
-    ax3d.w_zaxis.set_major_formatter(ticker.FixedFormatter(formatters))
+    ax3d.zaxis.set_major_locator(ticker.FixedLocator(locators))
+    ax3d.zaxis.set_major_formatter(ticker.FixedFormatter(formatters))
 
 
 def make_3d_ticks_ricen(ax3d, boundaries=None, transformed_formatters=False, S_scale=1e9, Y_scale=1e12, num_a=12, num_y=12,

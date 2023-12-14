@@ -5,8 +5,8 @@ from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
 from agent_algos import utils
 import wandb
-from agent_algos.rl_algos import DQN, D3QN, MADDPG
-from envs.ricen import RiceN
+from agent_algos.rl_algos import DQN, D3QN, MADDPG, PPO
+# from envs.ricen import RiceN
 import agent_algos.gradient_estimators
 
 import matplotlib.pyplot as plt
@@ -45,8 +45,9 @@ class MARL_agent:
                                        gamma=self.gamma, obs_type=self.obs_type, trade_actions=trade_actions,
                                        homogeneous=self.homogeneous)
         elif self.model == "rice-n":
-            self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
-                             max_steps=max_steps, discount=self.gamma)
+            sys.exit(0)
+            # self.env = RiceN(num_agents=self.num_agents, episode_length=max_steps, reward_type=self.reward_type,
+            #                  max_steps=max_steps, discount=self.gamma)
         self.state_dim = len(self.env.observation_space[0])
         self.action_dim = len(self.env.action_space)
 
@@ -89,7 +90,8 @@ class MARL_agent:
         self.top_down = top_down
 
         # self.agent_str = "DQN"
-        self.agent_str = "D3QN"
+        # self.agent_str = "D3QN"
+        self.agent_str = "PPO"
         if self.maddpg:
             self.agent_str = "MADDPG"
 
@@ -128,6 +130,15 @@ class MARL_agent:
 
         if self.agent_str == "DQN":
             self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+        if self.agent_str == "PPO":
+            self.agent = [PPO(self.state_dim,
+                              self.action_dim,
+                              lr_actor=3e-4,
+                              lr_critic=3e-4,
+                              gamma=0.95,
+                              K_epochs=4,
+                              eps_clip=0.2,
+                              has_continuous_action_space=False) for _ in range(self.num_agents)]
         elif self.agent_str == "D3QN":
             self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
         elif self.agent_str == "MADDPG":
@@ -416,6 +427,9 @@ class MARL_agent:
                     label = "action_n_agent_" + str(agent)
                     wandb.log({label: action_n[agent]}) if self.wandb_save else None
 
+                # print(action_n)
+                # sys.exit()
+
                 # step through environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
@@ -431,6 +445,11 @@ class MARL_agent:
                         episode_reward[agent] += reward[agent]
                         if done[agent]:
                             self.early_finish[agent] = True
+                elif self.agent_str == "PPO":
+                    for agent in range(self.num_agents):
+                        self.agent[agent].buffer.rewards.append(reward[agent])
+                        self.agent[agent].buffer.is_terminals.append(done[agent])
+                        self.agent[agent].update()
                 else:
                     for agent in range(self.num_agents):
                         # if not self.early_finish[agent]:
