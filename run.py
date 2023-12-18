@@ -100,8 +100,8 @@ if __name__ == "__main__":
     parser.add_argument('--rational_choice', default="2nd_best")
     # parser.add_argument('--rational_choice', default="random")
 
-    # parser.add_argument('--trade_actions', default=False)  # currently only works for two agents atm
-    parser.add_argument('--trade_actions', default=True)
+    parser.add_argument('--trade_actions', default=False)  # currently only works for two agents atm
+    # parser.add_argument('--trade_actions', default=True)
 
     parser.add_argument('--test_actions', default=False)
     # parser.add_argument('--test_actions', default=True)

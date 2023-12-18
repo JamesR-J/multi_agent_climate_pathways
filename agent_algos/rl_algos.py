@@ -141,7 +141,7 @@ class ActorCritic(nn.Module):
             print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
             print("--------------------------------------------------------------------------------------------")
 
-    def forward(self):
+    def forward(self, x):
         raise NotImplementedError
 
     def act(self, state):

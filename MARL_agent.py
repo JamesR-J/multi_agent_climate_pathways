@@ -57,10 +57,11 @@ class MARL_agent:
 
         print("Random Seed : {}".format(seed))
 
-        self.max_episodes = 2000  # max_episodes
+        self.max_episodes = max_episodes
         self.max_steps = max_steps
         self.max_frames = max_frames
         self.max_epochs = max_epochs
+        self.update_timestep = self.max_steps * 4
 
         self.alpha = 0.213
         self.beta = 0.7389
@@ -398,6 +399,8 @@ class MARL_agent:
         else:
             memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
+        time_step = 0
+
         for episodes in range(self.max_episodes):
             state_n, obs_n = self.env.reset()
             self.early_finish = [False] * self.num_agents
@@ -446,10 +449,12 @@ class MARL_agent:
                         if done[agent]:
                             self.early_finish[agent] = True
                 elif self.agent_str == "PPO":
+                    time_step += 1
                     for agent in range(self.num_agents):
                         self.agent[agent].buffer.rewards.append(reward[agent])
                         self.agent[agent].buffer.is_terminals.append(done[agent])
-                        self.agent[agent].update()
+                        if time_step % self.update_timestep == 0:
+                            self.agent[agent].update()
                 else:
                     for agent in range(self.num_agents):
                         # if not self.early_finish[agent]:
@@ -535,6 +540,9 @@ class MARL_agent:
                 os.makedirs(chkpt_save_path)
             torch.save(self.agent.agents,
                        chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
+        elif self.agent_str == "PPO":
+            for agent in range(self.num_agents):
+                tot_dict['agent_' + str(agent) + '_state_dict'] = self.agent[agent].policy.state_dict()
         else:
             for agent in range(self.num_agents):
                 tot_dict['agent_' + str(agent) + '_target_state_dict'] = self.agent[agent].target_net.state_dict()
