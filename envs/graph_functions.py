@@ -271,7 +271,8 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
         start, stop = inv_transf(boundaries[0])
         ax3d.set_xlim(*boundaries[0])
 
-    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])
+    ax3d.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])  # TODO is this correct bound?
 
     # Y - ticks
     transf = ft.partial(compactification, x_mid=current_state[1])

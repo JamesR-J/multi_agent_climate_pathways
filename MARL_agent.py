@@ -1,5 +1,7 @@
 import random
 from datetime import datetime
+import time
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 from envs.AYS_Environment_MultiAgent import *
 from envs.graph_functions import create_figure_ays, create_figure_ricen
@@ -20,13 +22,11 @@ class MARL_agent:
                  max_episodes=2000, max_steps=800, max_frames=1e5,
                  max_epochs=50, seed=42, gamma=0.99, decay_number=0,
                  save_locally=False, animation=False, test_actions=False, top_down=False, chkpt_load=False,
-                 obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False, maddpg=False,
+                 obs_type='all_shared', load_multi=False, rational=[True, True], trade_actions=False, algorithm="PPO",
                  homogeneous=False, rational_choice="2nd_best"):
-
-        self.maddpg = maddpg
         self.homogeneous = homogeneous
 
-        print("Homogeneous : {}".format(self.homogeneous))
+        print(f"Homogeneous : {self.homogeneous}")
 
         self.num_agents = num_agents
         self.obs_type = obs_type
@@ -55,9 +55,9 @@ class MARL_agent:
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        print("Random Seed : {}".format(seed))
+        print(f"Random Seed : {seed}")
 
-        self.max_episodes = max_episodes
+        self.max_episodes = 2 * max_episodes  # TODO remove this length
         self.max_steps = max_steps
         self.max_frames = max_frames
         self.max_epochs = max_epochs
@@ -90,13 +90,9 @@ class MARL_agent:
         self.animation = animation
         self.top_down = top_down
 
-        # self.agent_str = "DQN"
-        # self.agent_str = "D3QN"
-        self.agent_str = "PPO"
-        if self.maddpg:
-            self.agent_str = "MADDPG"
+        self.agent_str = algorithm
 
-        print("Using the {} algorithm".format(self.agent_str))
+        print(f"Using the {self.agent_str} algorithm")
 
         self.chkpt_load = chkpt_load
         self.chkpt_load_path = chkpt_load_path
@@ -104,10 +100,10 @@ class MARL_agent:
         self.episode_count = 0
 
         if self.chkpt_load:
-            if not self.maddpg:
+            if self.agent_str!= "MADDPG":
                 self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
             else:
-                self.episode_count = 2000  # change this hard-coding ep length
+                self.episode_count = 2000  # TODO change this hard-coding ep length
             self.max_episodes += self.episode_count
 
         if self.episode_count > 0:
@@ -123,14 +119,15 @@ class MARL_agent:
         self.rational_ep = [True] * self.num_agents
         self.irrational_end = [0] * self.num_agents
         self.rational_const = 0.1  # tweak this param as well for rationality amount
-        print("Rational behaviour: {}".format(self.rational))
+        print(f"Rational behaviour: {self.rational}")
         if not all(self.rational):
-            print("Rational choice: {}".format(self.rational_choice))
+            print(f"Rational choice: {self.rational_choice}")
 
         self.gradient_estimator = agent_algos.gradient_estimators.STGS(1.0)
 
         if self.agent_str == "DQN":
-            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+            self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice)
+                          for _ in range(self.num_agents)]
         if self.agent_str == "PPO":
             self.agent = [PPO(self.state_dim,
                               self.action_dim,
@@ -141,21 +138,23 @@ class MARL_agent:
                               eps_clip=0.2,
                               has_continuous_action_space=False) for _ in range(self.num_agents)]
         elif self.agent_str == "D3QN":
-            self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice) for _ in range(self.num_agents)]
+            self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice)
+                          for _ in range(self.num_agents)]
         elif self.agent_str == "MADDPG":
-            self.agent = MADDPG(
-                                    env=self.env,
-                                    critic_lr=3e-4,
-                                    actor_lr=3e-4,
-                                    gradient_clip=1.0,
-                                    hidden_dim_width=64,
-                                    gamma=0.95,
-                                    soft_update_size=0.01,
-                                    policy_regulariser=0.001,
-                                    gradient_estimator=self.gradient_estimator,
-                                    standardise_rewards=False,
-                                    pretrained_agents=None,
+            self.agent = MADDPG(env=self.env,
+                                critic_lr=3e-4,
+                                actor_lr=3e-4,
+                                gradient_clip=1.0,
+                                hidden_dim_width=64,
+                                gamma=0.95,
+                                soft_update_size=0.01,
+                                policy_regulariser=0.001,
+                                gradient_estimator=self.gradient_estimator,
+                                standardise_rewards=False,
+                                pretrained_agents=None,
                                 )
+        else:
+            sys.exit(0)
 
         self.test_actions = test_actions
 
@@ -163,40 +162,43 @@ class MARL_agent:
         """To plot trajectories of the agent"""
         # state = self.env.reset_for_state(start_state)
         for episode in range(50):
-                state_n, obs_n = self.env.reset()
-                learning_progress = []
-                actions = []
-                rewards = []
-                self.rational_ep = [True] * self.num_agents
-                self.irrational_end = [0] * self.num_agents
-                for step in range(steps):
-                    # list_state, list_reward_space = self.env.get_plot_state_list()
+            state_n, obs_n = self.env.reset()
+            learning_progress = []
+            actions = []
+            rewards = []
+            self.rational_ep = [True] * self.num_agents
+            self.irrational_end = [0] * self.num_agents
+            for step in range(steps):
+                # list_state, list_reward_space = self.env.get_plot_state_list()
 
-                    for agent in range(self.num_agents):
-                        self.rational_calc(agent, step)
+                for agent in range(self.num_agents):
+                    self.rational_calc(agent, step)
 
-                    # take recommended action
-                    if self.agent_str == "MADDPG":
-                        action_n = self.agent.acts(obs_n)
-                    else:
-                        action_n = torch.tensor(
-                            [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for agent in
-                             range(self.num_agents)])
-
-                    # Do the new chosen action in Environment
-                    next_state, reward, done, next_obs = self.env.step(action_n)
-                    actions.append(action_n)
-                    rewards.append(reward)
-                    learning_progress.append([state_n, action_n, reward])
-
-                    obs_n = next_obs.clone()
-                    state_n = next_state.clone()
-                    if torch.all(done):
-                        break
+                # take recommended action
                 if self.agent_str == "MADDPG":
-                    fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour, maddpg=True)
+                    action_n = self.agent.acts(obs_n)
                 else:
-                    fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png', colour=colour)
+                    action_n = torch.tensor(
+                        [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent], testing=True) for
+                         agent in
+                         range(self.num_agents)])
+
+                # Do the new chosen action in Environment
+                next_state, reward, done, next_obs = self.env.step(action_n)
+                actions.append(action_n)
+                rewards.append(reward)
+                learning_progress.append([state_n, action_n, reward])
+
+                obs_n = next_obs.clone()
+                state_n = next_state.clone()
+                if torch.all(done):
+                    break
+            if self.agent_str == "MADDPG":
+                fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png',
+                                              colour=colour, maddpg=True)
+            else:
+                fig, axes = self.env.plot_run(learning_progress, fig=fig, axes=None, fname='./' + str(episode) + '.png',
+                                              colour=colour)
 
         return actions, rewards
 
@@ -220,8 +222,8 @@ class MARL_agent:
         # upper_bound = 160+40
 
         # rho
-        lower_bound = 2-1
-        upper_bound = 2+1
+        lower_bound = 2 - 1
+        upper_bound = 2 + 1
 
         pointys = np.linspace(lower_bound, upper_bound, grid_size)
 
@@ -271,7 +273,8 @@ class MARL_agent:
 
     def plot_end_state_matrix(self, results, upper_bound, lower_bound):
         size = int(np.sqrt(len(results)))
-        fig = plt.imshow(np.flip(results.reshape(size, size), axis=0), extent=(lower_bound, upper_bound, lower_bound, upper_bound), cmap='cividis')
+        fig = plt.imshow(np.flip(results.reshape(size, size), axis=0),
+                         extent=(lower_bound, upper_bound, lower_bound, upper_bound), cmap='cividis')
         # plt.ylabel("Y Agent 0")
         # plt.xlabel("Y Agent 1")
         # plt.ylabel("S Agent 0")
@@ -344,10 +347,10 @@ class MARL_agent:
                 if step == self.irrational_end[agent]:
                     self.rational_ep[agent] = True
 
-    def pretrained_agents_load(self, maddpg=False):
+    def pretrained_agents_load(self, algorithm):
         if self.chkpt_load:
             checkpoint = torch.load(self.chkpt_load_path)
-            if maddpg:
+            if algorithm == "MADDPG":
                 self.agent = MADDPG(
                     env=self.env,
                     critic_lr=3e-4,
@@ -361,6 +364,11 @@ class MARL_agent:
                     standardise_rewards=False,
                     pretrained_agents=checkpoint,
                 )
+            elif self.agent_str == "PPO":
+                for agent in range(self.num_agents):
+                    chkpt_string = 'agent_' + str(agent)
+                    (self.agent[agent].policy.load_state_dict(checkpoint[chkpt_string + '_state_dict']))
+                self.episode_count = checkpoint['episode_count']
             else:
                 for agent in range(self.num_agents):
                     chkpt_string = 'agent_' + str(agent)
@@ -370,16 +378,6 @@ class MARL_agent:
                 self.episode_count = checkpoint['episode_count']
 
     def training_run(self):
-
-        if self.animation:
-            plt.ion()
-            if self.model == 'ays':
-                fig, ax3d = create_figure_ays(top_down=self.top_down)
-            if self.model == 'rice-n':
-                fig, ax3d = create_figure_ricen(top_down=self.top_down)
-            colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
-            plt.show()
-
         self.data['frame_idx'] = self.data['episodes'] = 0
 
         if self.wandb_save:
@@ -393,7 +391,8 @@ class MARL_agent:
             wandb.define_metric("train/*", step_metric="train/episode")
 
         if self.agent_str == "D3QN":
-            memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in range(self.num_agents)]
+            memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in
+                      range(self.num_agents)]
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         else:
@@ -413,6 +412,7 @@ class MARL_agent:
                 x_values = [[] for _ in range(self.num_agents)]
                 y_values = [[] for _ in range(self.num_agents)]
                 z_values = [[] for _ in range(self.num_agents)]
+                reward_values = [[] for _ in range(self.num_agents)]
 
             for i in range(self.max_steps):
 
@@ -422,7 +422,9 @@ class MARL_agent:
                 if self.agent_str == "MADDPG":
                     action_n = self.agent.acts(obs_n)
                 else:
-                    action_n = torch.tensor([self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in range(self.num_agents)])
+                    action_n = torch.tensor(
+                        [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in
+                         range(self.num_agents)])
                 if self.test_actions:
                     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
@@ -455,69 +457,76 @@ class MARL_agent:
                         self.agent[agent].buffer.is_terminals.append(done[agent])
                         if time_step % self.update_timestep == 0:
                             self.agent[agent].update()
+                        if done[agent]:
+                            self.early_finish[agent] = True
                 else:
                     for agent in range(self.num_agents):
                         # if not self.early_finish[agent]:
-                            episode_reward[agent] += reward[agent]
-                            memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
-                            if len(memory[agent]) > self.batch_size:
-                                if self.agent_str == "D3QN":
-                                    self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
-                                    sample = memory[agent].sample(self.batch_size, self.beta)
-                                    loss, tds = self.agent[agent].update(
-                                        (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
-                                         sample['done']),
-                                        weights=sample['weights']
-                                    )
-                                    new_tds = np.abs(tds.cpu().numpy()) + 1e-6
-                                    memory[agent].update_priorities(sample['indexes'], new_tds)
-                                else:
-                                    sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
-                                    loss, _ = self.agent[agent].update(sample)
+                        episode_reward[agent] += reward[agent]
+                        memory[agent].push(obs_n[agent], action_n[agent], reward[agent], next_obs[agent], done[agent])
+                        if len(memory[agent]) > self.batch_size:
+                            if self.agent_str == "D3QN":
+                                self.beta = 1 - (1 - self.beta) * np.exp(-0.05 * episodes)
+                                sample = memory[agent].sample(self.batch_size, self.beta)
+                                loss, tds = self.agent[agent].update(
+                                    (sample['obs'], sample['action'], sample['reward'], sample['next_obs'],
+                                     sample['done']),
+                                    weights=sample['weights']
+                                )
+                                new_tds = np.abs(tds.cpu().numpy()) + 1e-6
+                                memory[agent].update_priorities(sample['indexes'], new_tds)
+                            else:
+                                sample = memory[agent].sample(self.batch_size)  # shape(5,128,xxx)
+                                loss, _ = self.agent[agent].update(sample)
 
-                                label = "train/loss_agent_" + str(agent)
-                                wandb.log({label: loss}) if self.wandb_save else None
-                            if done[agent]:
-                                self.early_finish[agent] = True
-                        # else:  # allows another agent to carry on running even if one has reached final state
-                        #     next_state[agent] = state_n[agent].clone()
+                            label = "train/loss_agent_" + str(agent)
+                            wandb.log({label: loss}) if self.wandb_save else None
+                        if done[agent]:
+                            self.early_finish[agent] = True
+                    # else:  # allows another agent to carry on running even if one has reached final state
+                    #     next_state[agent] = state_n[agent].clone()
 
                 obs_n = next_obs.clone()
                 state_n = next_state.clone()
+                reward_clone = reward.clone()  # TODO double check this is correct for the rest
                 self.data['frame_idx'] += 1
 
                 if self.animation:
-                    for line in ax3d.lines:
-                        line.remove()
-
                     for agent in range(self.num_agents):
                         x_values[agent].append(state_n[agent][0])
                         y_values[agent].append(state_n[agent][1])
                         z_values[agent].append(state_n[agent][2])
-
-                        if self.early_finish[agent]:
-                            ax3d.plot3D(xs=x_values[agent], ys=y_values[agent], zs=z_values[agent],
-                                        color='r', alpha=0.8, lw=3, label="Agent : {}".format(agent))
-                        else:
-                            ax3d.plot3D(xs=x_values[agent], ys=y_values[agent], zs=z_values[agent],
-                                        color=colors[agent], alpha=0.8, lw=3, label="Agent : {}".format(agent))
-
-                    ax3d.set_title(["Agent {} {} reward : {:.2f}".format(agent, self.reward_type[agent], reward[agent][0]) for agent in
-                                    range(self.num_agents)])
-                    # ax3d.set_title(i)
-                    ax3d.legend()
-
-                    plt.pause(0.00001)
+                        reward_values[agent].append(reward_clone[agent][0])
 
                 if torch.all(done):
                     break
 
-            if self.animation:
-                ax3d.clear()
+            def animate_func(num):
+                for line in ax3d.lines:  # TODO why does this start with two empty lists?
+                    line.remove()
+
+                for agent in range(self.num_agents):
+                    if self.early_finish[agent]:
+                        ax3d.plot3D(xs=x_values[agent][:num], ys=y_values[agent][:num], zs=z_values[agent][:num],
+                                    color='r', alpha=0.8, lw=3, label=f"Agent : {agent}")
+                    else:
+                        ax3d.plot3D(xs=x_values[agent][:num], ys=y_values[agent][:num], zs=z_values[agent][:num],
+                                    color=colors[agent], alpha=0.8, lw=3, label=f"Agent : {agent}")
+
+                ax3d.set_title(
+                    [f"{self.agent_str} Agent {agent} {self.reward_type[agent]} reward : {reward_values[agent][num]:.2f}" for agent in
+                     range(self.num_agents)])
+
+            if self.animation and episodes % 100 == 0:
                 if self.model == 'ays':
-                    fig, ax3d = create_figure_ays(reset=True, fig3d=fig, ax3d=ax3d, top_down=self.top_down)
+                    fig, ax3d = create_figure_ays(top_down=self.top_down)
                 if self.model == 'rice-n':
-                    fig, ax3d = create_figure_ricen(reset=True, fig3d=fig, ax3d=ax3d, top_down=self.top_down)
+                    fig, ax3d = create_figure_ricen(top_down=self.top_down)
+                colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
+                line_ani = FuncAnimation(fig, animate_func, interval=5, frames=len(x_values[0]), repeat=False)
+                file_name = f"gifs/{episodes}.gif"
+                line_ani.save(file_name, writer=PillowWriter(fps=60))
+                print(f"Saved GIF of episode - {episodes}")
 
             self.append_data(episode_reward, episodes)
 
@@ -541,8 +550,14 @@ class MARL_agent:
             torch.save(self.agent.agents,
                        chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
         elif self.agent_str == "PPO":
+            chkpt_save_path += '_PPO'
+            if not os.path.exists(chkpt_save_path):
+                os.makedirs(chkpt_save_path)
             for agent in range(self.num_agents):
                 tot_dict['agent_' + str(agent) + '_state_dict'] = self.agent[agent].policy.state_dict()
+            tot_dict['episode_count'] = self.episode_count
+            torch.save(tot_dict,
+                       chkpt_save_path + '/end_time=' + str(datetime.now().strftime("%d-%m-%Y_%H-%M-%S")) + '.tar')
         else:
             for agent in range(self.num_agents):
                 tot_dict['agent_' + str(agent) + '_target_state_dict'] = self.agent[agent].target_net.state_dict()
@@ -568,6 +583,3 @@ class MARL_agent:
         if self.wandb_save:
             wandb.run.summary["data"] = self.data
             wandb.finish()
-
-        if self.animation:
-            plt.ioff()

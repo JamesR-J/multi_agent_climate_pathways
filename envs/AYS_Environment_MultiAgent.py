@@ -101,7 +101,7 @@ class AYS_Environment(Env):
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
         self.reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
         self.reward_type = reward_type
-        print("Reward type: {}".format(self.reward_type))
+        print(f"Reward type: {self.reward_type}")
 
         self.timeStart = 0
         self.intSteps = 10  # integration Steps
@@ -128,7 +128,7 @@ class AYS_Environment(Env):
         self.state = self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
         self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
         self.obs_type = obs_type
-        print("Observation type: {}".format(self.obs_type))
+        print(f"Observation type: {self.obs_type}")
         if self.obs_type == 'agent_only':
             self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 20]).repeat(self.num_agents, 1)
         elif self.obs_type == 'all_shared' and not self.trade_actions:
@@ -575,7 +575,7 @@ class AYS_Environment(Env):
                     if ind == 1:
                         ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(),
                                     zs=reshaped_tensor[agent, :, 2].tolist(),
-                                    color=my_colour, alpha=0.6, lw=3, label="Agent : {}".format(agent))
+                                    color=my_colour, alpha=0.6, lw=3, label=f"Agent : {agent}")
                     else:
                         ax3d.plot3D(xs=reshaped_tensor[agent, :, 0].tolist(), ys=reshaped_tensor[agent, :, 1].tolist(), zs=reshaped_tensor[agent, :, 2].tolist(),
                                     color=my_colour, alpha=0.6, lw=3)
