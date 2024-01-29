@@ -504,7 +504,13 @@ class AYS_Environment(Env):
              Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
         """
         if action is None:
-            action = torch.tensor([0]).repeat(self.num_agents, 1)
+            action = torch.tensor(0).repeat(self.num_agents, 1)
+        #
+        # print(action)
+        # print(type(action))
+        # print(action[0])
+        # print(type(action[0]))
+        # sys.exit()
 
         selected_rows = self.action_space[action.squeeze(), :]
         if self.trade_actions:

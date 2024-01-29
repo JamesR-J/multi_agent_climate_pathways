@@ -1,13 +1,16 @@
 import sys
+import time
+
 import torch.nn as nn
 import torch.nn.functional as F
-from agent_algos.gradient_estimators import *
+from .gradient_estimators import *
 from typing import List, Optional
-from agent_algos.utils import RunningMeanStd
+from .utils import RunningMeanStd
 from torch.optim import Adam
 from copy import deepcopy
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
+from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -94,92 +97,6 @@ class CriticNetwork(nn.Module):
     def soft_update(self, source, t):
         for target_param, source_param in zip(self.parameters(), source.parameters()):
             target_param.data.copy_((1 - t) * target_param.data + t * source_param.data)
-
-
-class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init):
-        super(ActorCritic, self).__init__()
-
-        self.has_continuous_action_space = has_continuous_action_space
-
-        if has_continuous_action_space:
-            self.action_dim = action_dim
-            self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(DEVICE)
-        # actor
-        if has_continuous_action_space:
-            self.actor = nn.Sequential(
-                nn.Linear(state_dim, 64),
-                nn.Tanh(),
-                nn.Linear(64, 64),
-                nn.Tanh(),
-                nn.Linear(64, action_dim),
-                nn.Tanh()
-            )
-        else:
-            self.actor = nn.Sequential(
-                nn.Linear(state_dim, 64),
-                nn.Tanh(),
-                nn.Linear(64, 64),
-                nn.Tanh(),
-                nn.Linear(64, action_dim),
-                nn.Softmax(dim=-1)
-            )
-        # critic
-        self.critic = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.Tanh(),
-            nn.Linear(64, 64),
-            nn.Tanh(),
-            nn.Linear(64, 1)
-        )
-
-    def set_action_std(self, new_action_std):
-        if self.has_continuous_action_space:
-            self.action_var = torch.full((self.action_dim,), new_action_std * new_action_std).to(DEVICE)
-        else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
-
-    def forward(self, x):
-        raise NotImplementedError
-
-    def act(self, state):
-
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
-            dist = MultivariateNormal(action_mean, cov_mat)
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
-
-        action = dist.sample()
-        action_logprob = dist.log_prob(action)
-        state_val = self.critic(state)
-
-        return action.detach(), action_logprob.detach(), state_val.detach()
-
-    def evaluate(self, state, action):
-
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-
-            action_var = self.action_var.expand_as(action_mean)
-            cov_mat = torch.diag_embed(action_var).to(DEVICE)
-            dist = MultivariateNormal(action_mean, cov_mat)
-
-            # For Single Action Environments.
-            if self.action_dim == 1:
-                action = action.reshape(-1, self.action_dim)
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
-        action_logprobs = dist.log_prob(action)
-        dist_entropy = dist.entropy()
-        state_values = self.critic(state)
-
-        return action_logprobs, state_values, dist_entropy
 
 
 class DQN:
@@ -339,141 +256,200 @@ class RolloutBuffer:
         del self.is_terminals[:]
 
 
+class ActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
+        super(ActorCritic, self).__init__()
+
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+            nn.Softmax(dim=-1)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def act(self, state):
+        action_probs = self.actor(state)
+        dist = Categorical(action_probs)
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+        state_val = self.critic(state)
+
+        return action.detach(), action_logprob.detach(), state_val.detach()
+
+    def evaluate(self, state, action):
+        action_probs = self.actor(state)
+        dist = Categorical(action_probs)
+        action_logprobs = dist.log_prob(action)
+        dist_entropy = dist.entropy()
+        state_values = self.critic(state)
+
+        return action_logprobs, state_values, dist_entropy
+
+
+def orthogonal_init(layer, gain=1.0):
+    nn.init.orthogonal_(layer.weight, gain=gain)
+    nn.init.constant_(layer.bias, 0)
+
+
+class Actor(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
+        super(Actor, self).__init__()
+        use_tanh = True
+        use_orthogonal_init = True
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, action_dim)
+        self.activate_func = [nn.ReLU(), nn.Tanh()][use_tanh]  # Trick10: use tanh
+
+        if use_orthogonal_init:
+            print("------use_orthogonal_init------")
+            orthogonal_init(self.fc1)
+            orthogonal_init(self.fc2)
+            orthogonal_init(self.fc3, gain=0.01)
+
+    def forward(self, s):
+        s = self.activate_func(self.fc1(s))
+        s = self.activate_func(self.fc2(s))
+        a_prob = torch.softmax(self.fc3(s), dim=1)
+        return a_prob
+
+
+class Critic(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=256):
+        super(Critic, self).__init__()
+        use_tanh = True
+        use_orthogonal_init = True
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+        self.activate_func = [nn.ReLU(), nn.Tanh()][use_tanh]  # Trick10: use tanh
+
+        if use_orthogonal_init:
+            print("------use_orthogonal_init------")
+            orthogonal_init(self.fc1)
+            orthogonal_init(self.fc2)
+            orthogonal_init(self.fc3)
+
+    def forward(self, s):
+        s = self.activate_func(self.fc1(s))
+        s = self.activate_func(self.fc2(s))
+        v_s = self.fc3(s)
+        return v_s
+
+
 class PPO:
-    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip,
-                 has_continuous_action_space, action_std_init=0.6):
+    def __init__(self, state_dim, action_dim, max_train_steps):
+        self.batch_size = 2048
+        self.mini_batch_size = 64
+        self.lr_a = 3e-4
+        self.lr_c = 3e-4
+        self.gamma = 0.99
+        self.lamda = 0.95
+        self.epsilon = 0.2
+        self.K_epochs = 10
+        self.entropy_coef = 0.01
+        self.set_adam_eps = True
+        self.use_grad_clip = True
+        self.use_lr_decay = True
+        self.use_adv_norm = True
 
-        self.has_continuous_action_space = has_continuous_action_space
+        self.max_train_steps = max_train_steps
 
-        if has_continuous_action_space:
-            self.action_std = action_std_init
-
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
-
-        self.buffer = RolloutBuffer()
-
-        self.policy = ActorCritic(state_dim, action_dim, has_continuous_action_space, action_std_init).to(DEVICE)
-        self.optimizer = torch.optim.Adam([
-            {'params': self.policy.actor.parameters(), 'lr': lr_actor},
-            {'params': self.policy.critic.parameters(), 'lr': lr_critic}
-        ])
-
-        self.policy_old = ActorCritic(state_dim, action_dim, has_continuous_action_space, action_std_init).to(DEVICE)
-        self.policy_old.load_state_dict(self.policy.state_dict())
-
-        self.MseLoss = nn.MSELoss()
-
-    def set_action_std(self, new_action_std):
-        if self.has_continuous_action_space:
-            self.action_std = new_action_std
-            self.policy.set_action_std(new_action_std)
-            self.policy_old.set_action_std(new_action_std)
+        self.actor = Actor(state_dim, action_dim)
+        self.critic = Critic(state_dim, action_dim)
+        if self.set_adam_eps:  # Trick 9: set Adam epsilon=1e-5
+            self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a, eps=1e-5)
+            self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c, eps=1e-5)
         else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling PPO::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
+            self.optimizer_actor = torch.optim.Adam(self.actor.parameters(), lr=self.lr_a)
+            self.optimizer_critic = torch.optim.Adam(self.critic.parameters(), lr=self.lr_c)
 
-    def decay_action_std(self, action_std_decay_rate, min_action_std):
-        print("--------------------------------------------------------------------------------------------")
-        if self.has_continuous_action_space:
-            self.action_std = self.action_std - action_std_decay_rate
-            self.action_std = round(self.action_std, 4)
-            if (self.action_std <= min_action_std):
-                self.action_std = min_action_std
-                print("setting actor output action_std to min_action_std : ", self.action_std)
-            else:
-                print("setting actor output action_std to : ", self.action_std)
-            self.set_action_std(self.action_std)
+    def evaluate(self, s):  # When evaluating the policy, we select the action with the highest probability
+        s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
+        a_prob = self.actor(s).detach().numpy().flatten()
+        a = np.argmax(a_prob)
+        return a
 
-        else:
-            print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
-        print("--------------------------------------------------------------------------------------------")
+    def choose_action(self, s, rational=False):
+        s = torch.unsqueeze(torch.tensor(s, dtype=torch.float), 0)
+        with torch.no_grad():
+            dist = Categorical(probs=self.actor(s))
+            a = dist.sample()
+            a_logprob = dist.log_prob(a)
+        return a.numpy()[0], a_logprob.numpy()[0]
 
-    def get_action(self, state, rational):
+    def update(self, replay_buffer, total_steps):
+        s, a, a_logprob, r, s_, dw, done = replay_buffer.numpy_to_tensor()  # Get training data
+        """
+            Calculate the advantage using GAE
+            'dw=True' means dead or win, there is no next state s'
+            'done=True' represents the terminal of an episode(dead or win or reaching the max_episode_steps). When calculating the adv, if done=True, gae=0
+        """
+        adv = []
+        gae = 0
+        with torch.no_grad():  # adv and v_target have no gradient
+            vs = self.critic(s)
+            vs_ = self.critic(s_)
+            deltas = r + self.gamma * (1.0 - dw) * vs_ - vs
+            for delta, d in zip(reversed(deltas.flatten().numpy()), reversed(done.flatten().numpy())):
+                gae = delta + self.gamma * self.lamda * gae * (1.0 - d)
+                adv.insert(0, gae)
+            adv = torch.tensor(adv, dtype=torch.float).view(-1, 1)
+            v_target = adv + vs
+            if self.use_adv_norm:  # Trick 1:advantage normalization
+                adv = ((adv - adv.mean()) / (adv.std() + 1e-5))
 
-        if self.has_continuous_action_space:
-            with torch.no_grad():
-                state = torch.FloatTensor(state).to(DEVICE)
-                action, action_logprob, state_val = self.policy_old.act(state)
-
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.detach().cpu().numpy().flatten()
-        else:
-            with torch.no_grad():
-                state = torch.FloatTensor(state.float()).to(DEVICE)
-                action, action_logprob, state_val = self.policy_old.act(state)
-
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.item()
-
-    def update(self):
-        # Monte Carlo estimate of returns
-        rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
-
-        # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(DEVICE)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # convert list to tensor
-        old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(DEVICE)
-        old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(DEVICE)
-        old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(DEVICE)
-        old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(DEVICE)
-
-        # calculate advantages
-        advantages = rewards.detach() - old_state_values.detach()
-
-        # Optimize policy for K epochs
+        # Optimize policy for K epochs:
         for _ in range(self.K_epochs):
-            # Evaluating old actions and values
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
+            # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
+            for index in BatchSampler(SubsetRandomSampler(range(self.batch_size)), self.mini_batch_size, False):
+                dist_now = Categorical(probs=self.actor(s[index]))
+                dist_entropy = dist_now.entropy().view(-1, 1)  # shape(mini_batch_size X 1)
+                a_logprob_now = dist_now.log_prob(a[index].squeeze()).view(-1, 1)  # shape(mini_batch_size X 1)
+                # a/b=exp(log(a)-log(b))
+                ratios = torch.exp(a_logprob_now - a_logprob[index])  # shape(mini_batch_size X 1)
 
-            # match state_values tensor dimensions with rewards tensor
-            state_values = torch.squeeze(state_values)
+                surr1 = ratios * adv[index]  # Only calculate the gradient of 'a_logprob_now' in ratios
+                surr2 = torch.clamp(ratios, 1 - self.epsilon, 1 + self.epsilon) * adv[index]
+                actor_loss = -torch.min(surr1, surr2) - self.entropy_coef * dist_entropy  # shape(mini_batch_size X 1)
+                # Update actor
+                self.optimizer_actor.zero_grad()
+                actor_loss.mean().backward()
+                if self.use_grad_clip:  # Trick 7: Gradient clip
+                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+                self.optimizer_actor.step()
 
-            # Finding the ratio (pi_theta / pi_theta__old)
-            ratios = torch.exp(logprobs - old_logprobs.detach())
+                v_s = self.critic(s[index])
+                critic_loss = F.mse_loss(v_target[index], v_s)
+                # Update critic
+                self.optimizer_critic.zero_grad()
+                critic_loss.backward()
+                if self.use_grad_clip:  # Trick 7: Gradient clip
+                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+                self.optimizer_critic.step()
 
-            # Finding Surrogate Loss
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+        if self.use_lr_decay:  # Trick 6:learning rate Decay
+            self.lr_decay(total_steps)
 
-            # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
 
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
+        return actor_loss.mean()
 
-        # Copy new weights into old policy
-        self.policy_old.load_state_dict(self.policy.state_dict())
-
-        # clear buffer
-        self.buffer.clear()
-
-    def save(self, checkpoint_path):
-        torch.save(self.policy_old.state_dict(), checkpoint_path)
-
-    def load(self, checkpoint_path):
-        self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
+    def lr_decay(self, total_steps):
+        lr_a_now = self.lr_a * (1 - total_steps / self.max_train_steps)
+        lr_c_now = self.lr_c * (1 - total_steps / self.max_train_steps)
+        for p in self.optimizer_actor.param_groups:
+            p['lr'] = lr_a_now
+        for p in self.optimizer_critic.param_groups:
+            p['lr'] = lr_c_now
 
 
 class Agent:

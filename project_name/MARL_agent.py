@@ -1,15 +1,17 @@
 import random
+import sys
+import os
 from datetime import datetime
-import time
 from matplotlib.animation import FuncAnimation, PillowWriter
-
-from envs.AYS_Environment_MultiAgent import *
-from envs.graph_functions import create_figure_ays, create_figure_ricen
-from agent_algos import utils
+import torch
+from .envs.graph_functions import create_figure_ays, create_figure_ricen
+from .agent_algos import utils
 import wandb
-from agent_algos.rl_algos import DQN, D3QN, MADDPG, PPO
+from .agent_algos.rl_algos import DQN, D3QN, MADDPG, PPO
+from .envs.AYS_Environment_MultiAgent import AYS_Environment
+import numpy as np
 # from envs.ricen import RiceN
-import agent_algos.gradient_estimators
+from .agent_algos import gradient_estimators
 
 import matplotlib.pyplot as plt
 
@@ -61,12 +63,12 @@ class MARL_agent:
         self.max_steps = max_steps
         self.max_frames = max_frames
         self.max_epochs = max_epochs
-        self.update_timestep = self.max_steps * 4
+        self.update_episodes = 20
 
         self.alpha = 0.213
         self.beta = 0.7389
         self.buffer_size = 32768
-        self.batch_size = 256
+        self.batch_size = 2048  # 256
         self.decay_number = decay_number
         self.step_decay = int(self.max_frames / (self.decay_number + 1))
 
@@ -123,7 +125,7 @@ class MARL_agent:
         if not all(self.rational):
             print(f"Rational choice: {self.rational_choice}")
 
-        self.gradient_estimator = agent_algos.gradient_estimators.STGS(1.0)
+        self.gradient_estimator = gradient_estimators.STGS(1.0)
 
         if self.agent_str == "DQN":
             self.agent = [DQN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice)
@@ -131,12 +133,7 @@ class MARL_agent:
         if self.agent_str == "PPO":
             self.agent = [PPO(self.state_dim,
                               self.action_dim,
-                              lr_actor=3e-4,
-                              lr_critic=3e-4,
-                              gamma=0.95,
-                              K_epochs=4,
-                              eps_clip=0.2,
-                              has_continuous_action_space=False) for _ in range(self.num_agents)]
+                              self.max_steps * self.max_episodes) for _ in range(self.num_agents)]
         elif self.agent_str == "D3QN":
             self.agent = [D3QN(self.state_dim, self.action_dim, epsilon=epsilon, rational_choice=self.rational_choice)
                           for _ in range(self.num_agents)]
@@ -381,8 +378,7 @@ class MARL_agent:
         self.data['frame_idx'] = self.data['episodes'] = 0
 
         if self.wandb_save:
-            # wandb.init(project="ucl_diss", group=self.model,
-            wandb.init(project="ucl_diss", group="final_tests",
+            wandb.init(entity="jamesr-j",
                        config={"reward_type": self.reward_type,
                                "observations": self.obs_type,
                                "rational": self.rational
@@ -393,12 +389,15 @@ class MARL_agent:
         if self.agent_str == "D3QN":
             memory = [utils.PER_IS_ReplayBuffer(self.buffer_size, alpha=self.alpha, state_dim=self.state_dim) for _ in
                       range(self.num_agents)]
+        elif self.agent_str == "PPO":
+            memory = [utils.PPOReplayBuffer(self.batch_size, state_dim=self.state_dim) for _ in
+                      range(self.num_agents)]
         elif self.agent_str == "MADDPG":
             memory = utils.MADDPG_ReplayBuffer(2_000_000, [self.state_dim] * self.num_agents, 512)
         else:
             memory = [utils.ReplayBuffer(self.buffer_size) for _ in range(self.num_agents)]
 
-        time_step = 0
+        timestep = 0
 
         for episodes in range(self.max_episodes):
             state_n, obs_n = self.env.reset()
@@ -406,6 +405,7 @@ class MARL_agent:
             episode_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
             self.rational_ep = [True] * self.num_agents
+            self.dw = [False] * self.num_agents
             self.irrational_end = [0] * self.num_agents
 
             if self.animation:
@@ -421,19 +421,28 @@ class MARL_agent:
 
                 if self.agent_str == "MADDPG":
                     action_n = self.agent.acts(obs_n)
+                elif self.agent_str == "PPO":
+                    action_n, action_prob_n = torch.split(torch.tensor([self.agent[agent].choose_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in
+                         range(self.num_agents)]), 1, dim=1)
+                    action_n = action_n.squeeze()
+                    action_prob_n = action_prob_n.squeeze()
+                    if self.num_agents == 1:
+                        action_n = torch.tensor([int(action_n)])
+                        action_prob_n = torch.tensor([int(action_prob_n)])
+                    else:
+                        action_n = torch.tensor([int(i) for i in action_n])
+                        action_prob_n = torch.tensor([int(i) for i in action_prob_n])
+
                 else:
                     action_n = torch.tensor(
                         [self.agent[agent].get_action(obs_n[agent], rational=self.rational_ep[agent]) for agent in
                          range(self.num_agents)])
-                if self.test_actions:
-                    action_n = torch.tensor([0 for _ in range(self.num_agents)])
+                # if self.test_actions:
+                #     action_n = torch.tensor([0 for _ in range(self.num_agents)])
 
                 for agent in range(self.num_agents):
                     label = "action_n_agent_" + str(agent)
                     wandb.log({label: action_n[agent]}) if self.wandb_save else None
-
-                # print(action_n)
-                # sys.exit()
 
                 # step through environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
@@ -451,14 +460,23 @@ class MARL_agent:
                         if done[agent]:
                             self.early_finish[agent] = True
                 elif self.agent_str == "PPO":
-                    time_step += 1
+                    # time_step += 1
                     for agent in range(self.num_agents):
-                        self.agent[agent].buffer.rewards.append(reward[agent])
-                        self.agent[agent].buffer.is_terminals.append(done[agent])
-                        if time_step % self.update_timestep == 0:
-                            self.agent[agent].update()
+                        episode_reward[agent] += reward[agent]
+
+                        if done[agent] and i != self.max_steps:
+                            self.dw[agent] = True
+                        else:
+                            self.dw[agent] = False
+
+                        memory[agent].store(obs_n[agent], action_n[agent], action_prob_n[agent], reward[agent], next_obs[agent], self.dw[agent], done[agent])
                         if done[agent]:
                             self.early_finish[agent] = True
+                        if memory[agent].count == self.batch_size:
+                            loss = self.agent[agent].update(memory[agent], timestep)
+                            memory[agent].count = 0
+                            label = "train/loss_agent_" + str(agent)
+                            wandb.log({label: loss}) if self.wandb_save else None
                 else:
                     for agent in range(self.num_agents):
                         # if not self.early_finish[agent]:
@@ -501,6 +519,8 @@ class MARL_agent:
                 if torch.all(done):
                     break
 
+                timestep += 1  # TODO added for PPO see if needed
+
             def animate_func(num):
                 for line in ax3d.lines:  # TODO why does this start with two empty lists?
                     line.remove()
@@ -524,7 +544,7 @@ class MARL_agent:
                     fig, ax3d = create_figure_ricen(top_down=self.top_down)
                 colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
                 line_ani = FuncAnimation(fig, animate_func, interval=5, frames=len(x_values[0]), repeat=False)
-                file_name = f"gifs/{episodes}.gif"
+                file_name = f"gifs/{episodes}.gif"  # TODO fix image saving for the cluster
                 line_ani.save(file_name, writer=PillowWriter(fps=60))
                 print(f"Saved GIF of episode - {episodes}")
 

@@ -4,6 +4,7 @@ import sys
 import numpy as np
 from datetime import datetime
 
+
 def main(args):
     if args.chkpt_load:
         chkpt_load_path = args.chkpt_load_path
@@ -54,8 +55,7 @@ def main(args):
     # print("End Time : {}".format(datetime.now()))
 
 
-
-if __name__ == "__main__":
+def main_main():
     parser = argparse.ArgumentParser()
     # parser.add_argument('--animation', default=False)
     parser.add_argument('--animation', default=True)
@@ -80,13 +80,14 @@ if __name__ == "__main__":
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=2nd_best_episodes=2000/end_time=16-09-2023_21-12-05.tar")  # 2nd best irrationality
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=random_episodes=2000/end_time=15-09-2023_21-04-05.tar")  # random irrationality agent only
     # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=all_shared_num_agents=2_homogeneous=False_rationality=[True, False]_rational_choice=random_episodes=2000/end_time=15-09-2023_19-19-57.tar")  # random irrationality all shared
-    parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB']_obs_type=agent_only_num_agents=1_homogeneous=False_rationality=[True]_rational_choice=2nd_best_episodes=2000_PPO/end_time=19-12-2023_12-47-58.tar")
+    parser.add_argument('--chkpt_load_path',
+                        default="./checkpoints/env=ays_reward_type=['PB']_obs_type=agent_only_num_agents=1_homogeneous=False_rationality=[True]_rational_choice=2nd_best_episodes=2000_PPO/end_time=19-12-2023_12-47-58.tar")
 
-    parser.add_argument('--reward_type', default=["PB"])
+    # parser.add_argument('--reward_type', default=["PB"])
     # parser.add_argument('--reward_type', default=["IPB"])
     # parser.add_argument('--reward_type', default=["max_A"])
     # parser.add_argument('--reward_type', default=["max_Y"])
-    # parser.add_argument('--reward_type', default=["PB", "PB"])
+    parser.add_argument('--reward_type', default=["PB", "PB"])
     # parser.add_argument('--reward_type', default=["PB", "max_Y"])
     # parser.add_argument('--reward_type', default=["IPB", "max_Y"])
     # parser.add_argument('--reward_type', default=["IPB", "max_A"])
@@ -95,9 +96,9 @@ if __name__ == "__main__":
     parser.add_argument('--observation_type', default="agent_only")
     # parser.add_argument('--observation_type', default="all_shared")
 
-    # parser.add_argument('--rationality', default=[True, True])
+    parser.add_argument('--rationality', default=[True, True])
     # parser.add_argument('--rationality', default=[True, False])
-    parser.add_argument('--rationality', default=[True])
+    # parser.add_argument('--rationality', default=[True])
     # parser.add_argument('--rationality', default=[False])
 
     parser.add_argument('--rational_choice', default="2nd_best")
@@ -110,7 +111,7 @@ if __name__ == "__main__":
     # parser.add_argument('--test_actions', default=True)
     parser.add_argument('--model', type=str, default="ays")
     # parser.add_argument('--model', type=str, default="rice-n")
-    parser.add_argument('--num_agents', type=int, default=1)
+    parser.add_argument('--num_agents', type=int, default=2)
 
     parser.add_argument('--random_seed', type=int, default=42)
     # parser.add_argument('--random_seed', type=int, default=15)
@@ -121,5 +122,3 @@ if __name__ == "__main__":
 
     arguments = parser.parse_args()
     main(arguments)
-
-
