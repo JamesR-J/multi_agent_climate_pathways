@@ -7,8 +7,8 @@ _ANIMATION = flags.DEFINE_boolean("animation", False, "save gif of training or n
 _TOP_DOWN = flags.DEFINE_boolean("top_down", False, "top down view or not")
 _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
 
-_RL_ALGO = flags.DEFINE_string("rl_algo", "PPO", "which rl algorithm to use")
-# _RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
+# _RL_ALGO = flags.DEFINE_string("rl_algo", "PPO", "which rl algorithm to use")
+_RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
 # parser.add_argument('--algorithm', default="DQN")
 # parser.add_argument('--algorithm', default="MADDPG")
 
@@ -16,7 +16,7 @@ _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether to be homogen
 _CHKPT_LOAD = flags.DEFINE_boolean("chpt_load", False, "whether to load from checkpoint")
 # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
 
-_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB"], "what reward function to use")
+_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB"], "what reward function to use")
 # parser.add_argument('--reward_type', default=["PB"])
 # parser.add_argument('--reward_type', default=["IPB"])
 # parser.add_argument('--reward_type', default=["max_A"])
@@ -30,7 +30,7 @@ _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB"], "what reward function to
 _OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation type to use")
 # parser.add_argument('--observation_type', default="all_shared")
 
-_RATIONALITY = flags.DEFINE_list("rationality", [True], "whether to be rational or not per agent")
+_RATIONALITY = flags.DEFINE_list("rationality", [True, True], "whether to be rational or not per agent")
 
 _RATIONAL_CHOICE = flags.DEFINE_string("rational_choice", "2nd_best", "which rational choice to use")
 # parser.add_argument('--rational_choice', default="random")
@@ -39,7 +39,7 @@ _TRADE_ACTIONS = flags.DEFINE_boolean("trade_actions", False, "whether to trade 
 
 _TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
 _MODEL = flags.DEFINE_string("model", "ays", "ays or rice-n")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 

@@ -399,9 +399,9 @@ class PPO:
         with torch.no_grad():  # adv and v_target have no gradient
             vs = self.critic(s)
             vs_ = self.critic(s_)
-            deltas = r + self.gamma * (1.0 - dw) * vs_ - vs
+            deltas = r + self.gamma # * (1.0 - dw) * vs_ - vs  # TODO removed the done feature, idk if right
             for delta, d in zip(reversed(deltas.flatten().numpy()), reversed(done.flatten().numpy())):
-                gae = delta + self.gamma * self.lamda * gae * (1.0 - d)
+                gae = delta + self.gamma * self.lamda * gae # * (1.0 - d)  # TODO removed the done feature, idk if right
                 adv.insert(0, gae)
             adv = torch.tensor(adv, dtype=torch.float).view(-1, 1)
             v_target = adv + vs
@@ -439,7 +439,6 @@ class PPO:
 
         if self.use_lr_decay:  # Trick 6:learning rate Decay
             self.lr_decay(total_steps)
-
 
         return actor_loss.mean()
 

@@ -105,7 +105,7 @@ class MARL_agent:
             if self.agent_str!= "MADDPG":
                 self.episode_count = torch.load(self.chkpt_load_path)['episode_count']
             else:
-                self.episode_count = 2000  # TODO change this hard-coding ep length
+                self.episode_count = self.max_episodes  # TODO this may not always be the case though
             self.max_episodes += self.episode_count
 
         if self.episode_count > 0:
@@ -399,8 +399,12 @@ class MARL_agent:
 
         timestep = 0
 
+        reward_norm = utils.Normalization(shape=self.num_agents)
+        reward_scaling = utils.RewardScaling(shape=self.num_agents, gamma=0.99)
+
         for episodes in range(self.max_episodes):
             state_n, obs_n = self.env.reset()
+            reward_scaling.reset()  # TODO added reward scaling
             self.early_finish = [False] * self.num_agents
             episode_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
 
@@ -447,6 +451,14 @@ class MARL_agent:
                 # step through environment
                 next_state, reward, done, next_obs = self.env.step(action_n)
 
+                # print(reward.shape)
+
+                reward = reward_norm(reward)
+                reward = reward_scaling(reward)
+
+                # print(reward.shape)
+                # sys.exit()
+
                 if self.agent_str == "MADDPG":
                     memory.store(
                         obs=obs_n,
@@ -466,10 +478,9 @@ class MARL_agent:
 
                         if done[agent] and i != self.max_steps:
                             self.dw[agent] = True
-                        else:
-                            self.dw[agent] = False
 
                         memory[agent].store(obs_n[agent], action_n[agent], action_prob_n[agent], reward[agent], next_obs[agent], self.dw[agent], done[agent])
+                        # print(memory[agent].a_logprob)
                         if done[agent]:
                             self.early_finish[agent] = True
                         if memory[agent].count == self.batch_size:

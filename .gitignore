@@ -187,3 +187,4 @@ cython_debug/
 /project_name/__MACOSX/
 /wandb_api_key.txt
 /image.tar
+/pdm.lock
