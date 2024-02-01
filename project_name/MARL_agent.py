@@ -453,8 +453,8 @@ class MARL_agent:
 
                 # print(reward.shape)
 
-                reward = reward_norm(reward)
-                reward = reward_scaling(reward)
+                # reward = reward_norm(reward)
+                # reward = reward_scaling(reward)  # TODO took out reward scaling
 
                 # print(reward.shape)
                 # sys.exit()
