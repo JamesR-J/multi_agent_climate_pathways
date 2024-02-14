@@ -14,7 +14,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from scipy.integrate import odeint
+
 from gym import Env
 from enum import Enum
 from inspect import currentframe, getframeinfo
@@ -27,6 +27,8 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from functools import partial
+from typing import Tuple, Dict
+from jaxmarl.environments.spaces import Discrete, MultiDiscrete
 
 
 # class Basins(Enum):
@@ -43,36 +45,21 @@ from functools import partial
 
 @struct.dataclass
 class EnvState:  # TODO fill this env state up as we need it basos
-    pass
+    ayse: chex.Array
+    terminal: bool
+    step: int
+
 
 class AYS_Environment(object):
     dimensions = np.array(['A', 'Y', 'S'])
     management_options = ['default', 'LG', 'ET', 'LG+ET']
-    action_space = torch.tensor([[False, False], [True, False], [False, True], [True, True]])
-    action_space_number = np.arange(len(action_space))
 
-    tau_A = 50  # carbon decay - single val
-    tau_S = 50  # renewable knowledge stock decay - multi val
-    beta = 0.03  # economic output growth - multi val
-    beta_LG = 0.015  # halved economic output growth - multi val
-    eps = 147  # energy efficiency param - single val
-    A_offset = 600
-    theta = beta / (950 - A_offset)  # beta / ( 950 - A_offset(=350) )
-    # theta = 8.57e-5
 
-    rho = 2.  # renewable knowledge learning rate - multi val
-    sigma = 4e12  # break even knowledge - multi val
-    sigma_ET = sigma * 0.5 ** (1 / rho)  # can't remember the change, but it's somewhere - multi val
-
-    phi = 4.7e10
-
-    trade = 1.0
-    trade_inflicted = 1.4
 
     possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
 
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=2, obs_type='all_agents', trade_actions=False, homogeneous=False):
+                 plot_progress=False, num_agents=3, obs_type='all_agents', trade_actions=False, homogeneous=False):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -81,16 +68,7 @@ class AYS_Environment(object):
         self.gamma = gamma
 
         self.num_agents = num_agents
-        self.tau_A = torch.tensor([self.tau_A]).repeat(self.num_agents, 1)
-        self.tau_S = torch.tensor([self.tau_S]).repeat(self.num_agents, 1)
-        self.beta = torch.tensor([self.beta]).repeat(self.num_agents, 1)
-        self.beta_LG = torch.tensor([self.beta_LG]).repeat(self.num_agents, 1)
-        self.eps = torch.tensor([self.eps]).repeat(self.num_agents, 1)
-        self.theta = torch.tensor([self.theta]).repeat(self.num_agents, 1)
-        self.rho = torch.tensor([self.rho]).repeat(self.num_agents, 1)
-        self.sigma = torch.tensor([self.sigma]).repeat(self.num_agents, 1)
-        self.sigma_ET = torch.tensor([self.sigma_ET]).repeat(self.num_agents, 1)
-        self.phi = torch.tensor([self.phi]).repeat(self.num_agents, 1)
+        self.agents = [f"agent_{i}" for i in range(num_agents)]
 
         # The grid defines the number of cells, hence we have 8x8 possible states
         self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
@@ -112,13 +90,18 @@ class AYS_Environment(object):
 
         self.X_MID = [240, 7e13, 501.5198]
 
-        self.trade_actions = trade_actions
+        self.game_actions = {"NOTHING": 0,
+                             "LG": 1,
+                             "ET": 2,
+                             "LG+ET": 3}
+        self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
+        self.action_space = {i: Discrete(len(self.game_actions)) for i in self.agents}
 
-        if self.trade_actions:
-            self.action_space = torch.tensor(
-                [[False, False, False], [True, False, False], [False, True, False], [True, True, False],
-                 [False, False, True], [False, True, True], [True, False, True], [True, True, True]])
-            self.action_space_number = np.arange(len(self.action_space))
+        # if self.trade_actions:
+        #     self.action_space = torch.tensor(
+        #         [[False, False, False], [True, False, False], [False, True, False], [True, True, False],
+        #          [False, False, True], [False, True, True], [True, False, True], [True, True, True]])
+        #     self.action_space_number = np.arange(len(self.action_space))
 
         self.state = self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
         self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
@@ -127,15 +110,25 @@ class AYS_Environment(object):
         if self.obs_type == 'agent_only':
             self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 20]).repeat(self.num_agents, 1)
         elif self.obs_type == 'all_shared' and not self.trade_actions:
-            self.observation_space = torch.cat((torch.eye(self.num_agents), torch.tensor([0.5]).repeat(self.num_agents, 1), torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(self.num_agents, 1)), dim=1)
+            self.observation_space = torch.cat((torch.eye(self.num_agents),
+                                                torch.tensor([0.5]).repeat(self.num_agents, 1),
+                                                torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(
+                                                    self.num_agents, 1)), dim=1)
         elif self.obs_type == "all_shared" and self.trade_actions:
-            self.observation_space = torch.cat((torch.eye(self.num_agents), torch.tensor([0.5]).repeat(self.num_agents, 1), torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(self.num_agents, 1), torch.tensor([0.0] * self.num_agents).repeat(self.num_agents, 1)), dim=1)
+            self.observation_space = torch.cat((torch.eye(self.num_agents),
+                                                torch.tensor([0.5]).repeat(self.num_agents, 1),
+                                                torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(
+                                                    self.num_agents, 1),
+                                                torch.tensor([0.0] * self.num_agents).repeat(self.num_agents, 1)),
+                                               dim=1)
 
         """
         This values define the planetary boundaries of the AYS model
         """
-        self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(self.num_agents, 1)  # Planetary boundary: 0.5897
-        self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(self.num_agents, 1)  # Social foundations as boundary: 0.3636
+        self.A_PB = torch.tensor([self._compactification(ays.boundary_parameters["A_PB"], self.X_MID[0])]).repeat(
+            self.num_agents, 1)  # Planetary boundary: 0.5897
+        self.Y_SF = torch.tensor([self._compactification(ays.boundary_parameters["W_SF"], self.X_MID[1])]).repeat(
+            self.num_agents, 1)  # Social foundations as boundary: 0.3636
         self.E_LIMIT = torch.tensor([1.0]).repeat(self.num_agents, 1)
         self.PB = torch.cat((self.E_LIMIT,
                              self.Y_SF,
@@ -157,41 +150,77 @@ class AYS_Environment(object):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key: chex.PRNGKey):
-        if start_state is None:
-            self.state = self.current_state_region_StartPoint()
-        else:
-            self.state = start_state
+        limit = 0.05
+        # heterogeneous
+        state = jrandom.uniform(key, (self.num_agents, 4), minval=0.5 - limit, maxval=0.5 + limit)
+        state = state.at[:, 2].set(0.5)
+        state = state.at[:, 0].set(state[0, 0])
 
-        self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
-        self.t = self.t0
+        # homogeneous
+        # state = jrandom.uniform(key, (1, 3), minval=0.5 - limit, maxval=0.5 + limit)
+        # state = state.at[0, 2].set(0.5)
+        # state = jnp.tile(state, self.num_agents).reshape((self.num_agents, 3))
 
-        self.reward_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)),
-                                      dim=1)  # bit dodgy assuming emissions at 10, then normalised
+        state = state.at[:, 3].set(0)  # TODO setting emissions to zero at first step, need to add the calc here in future
 
-        self.old_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
+        assert jnp.all(state[:, 0] == state[0, 0]), "A - First column values are not equal."
 
-        if self.obs_type == 'agent_only':
-            self.observation_space = torch.cat((self.state, torch.tensor(10.0 / 20).repeat(self.num_agents, 1)),
-                                               dim=1)  # bit dodgy assuming emissions at 10, then normalised
-        elif self.obs_type == 'all_shared' and not self.trade_actions:
-            mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 20]).repeat(self.num_agents, 1)),
-                            dim=1).flatten().repeat(self.num_agents, 1)
-            self.observation_space = torch.cat(
-                (torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1), mid), dim=1)
-        elif self.obs_type == 'all_shared' and self.trade_actions:
-            mid = torch.cat((self.state[:, 1:], torch.tensor([10.0 / 20]).repeat(self.num_agents, 1)),
-                            dim=1).flatten().repeat(self.num_agents, 1)
-            self.observation_space = torch.cat((torch.eye(self.num_agents), self.state[:, 0].view(self.num_agents, 1),
-                                                mid, torch.tensor([0.0] * self.num_agents).repeat(self.num_agents, 1)),
-                                               dim=1)
+        env_state = EnvState(ayse=state,
+                             terminal=jnp.array(False),
+                             step=0)
 
-        return self.state.clone(), self.observation_space
+        return self._get_obs(env_state), env_state
 
-    def step_env(self, action: int):
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_obs(self, state: EnvState) -> Dict:
+        return state  # TODO reimplement this a lot better
 
-        next_t = self.t + self.dt
+    @partial(jax.jit, static_argnums=(0,))
+    def step(self,
+             key: chex.PRNGKey,
+             state: EnvState,
+             actions: Dict[str, chex.Array],
+             ) -> Tuple[Dict[str, chex.Array], EnvState, Dict[str, float], Dict[str, bool], Dict]:
+        """Performs step transitions in the environment."""
 
-        result, parameter_matrix = self._perform_step(action, next_t)  # A Y S E
+        key, key_reset = jax.random.split(key)
+        obs_st, states_st, rewards, dones, infos = self.step_env(key, state, actions)
+
+        obs_re, states_re = self.reset(key_reset)
+
+        # Auto-reset environment based on termination
+        states = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), states_re, states_st)
+        obs = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), obs_re, obs_st)
+
+        return obs, states, rewards, dones, infos
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step_env(self, key: chex.PRNGKey, state: EnvState, actions: dict):
+        actions = jnp.array([actions[i] for i in self.agents])
+        ayse = state.ayse
+
+        # next_t = self.t + self.dt
+        step = state.step + 1
+
+        action_matrix = self._get_parameters(actions)
+
+        # from jax.experimental.ode import odeint
+        from scipy.integrate import odeint
+
+        # flatten input matrix and add number of agents
+        action_vector = jnp.concatenate((action_matrix.ravel(), jnp.array((self.num_agents,))))
+
+        # ode_input = torch.cat((self.reward_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
+
+        print(ayse.ravel())
+
+        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ayse.ravel(), [state.step, step],
+                               args=tuple(action_vector.tolist()), mxstep=50000)
+        print(traj_one_step)
+        sys.exit()
+
+        result = torch.tensor(traj_one_step[1]).view(-1, 4)
+
         self.state[:, 0] = result[:, 3].clone()
         self.state[:, 1] = result[:, 1].clone()
         self.state[:, 2] = result[:, 0].clone()
@@ -207,7 +236,7 @@ class AYS_Environment(object):
         for agent in range(self.num_agents):
             if self._arrived_at_final_state(agent):
                 self.final_state[agent] = True
-            if self.reward_type[agent] == "PB":  #  or self.reward_type[agent] == "PB_new_new_new_new":
+            if self.reward_type[agent] == "PB":  # or self.reward_type[agent] == "PB_new_new_new_new":
                 if not self._inside_planetary_boundaries(agent):
                     self.final_state[agent] = True
             else:
@@ -239,10 +268,38 @@ class AYS_Environment(object):
         else:
             self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
 
-        return self.state.clone(), self.reward, self.final_state, self.observation_space
+        return obs_st, states_st, rewards, dones, infos
 
-    def step(self):
+    def _get_parameters(self, actions):
 
+        """
+        This function is needed to return the parameter set for the chosen management option.
+        Here the action numbers are really transformed to parameter lists, according to the chosen
+        management option.
+        Parameters:
+            -action_number: Number of the action in the actionset.
+             Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
+        """
+        tau_A = 50  # carbon decay - single val
+        tau_S = 50  # renewable knowledge stock decay - multi val
+        beta = 0.03  # economic output growth - multi val
+        beta_LG = 0.015  # halved economic output growth - multi val
+        eps = 147  # energy efficiency param - single val
+        A_offset = 600
+        theta = beta / (950 - A_offset)  # beta / ( 950 - A_offset(=350) )  # theta = 8.57e-5
+        rho = 2.  # renewable knowledge learning rate - multi val
+        sigma = 4e12  # break even knowledge - multi val
+        sigma_ET = sigma * 0.5 ** (1 / rho)  # can't remember the change, but it's somewhere - multi val
+        phi = 4.7e10
+
+        action_0 = jnp.array((beta, eps, phi, rho, sigma, tau_A, tau_S, theta))
+        action_1 = jnp.array((beta_LG, eps, phi, rho, sigma, tau_A, tau_S, theta))
+        action_2 = jnp.array((beta, eps, phi, rho, sigma_ET, tau_A, tau_S, theta))
+        action_3 = jnp.array((beta_LG, eps, phi, rho, sigma_ET, tau_A, tau_S, theta))
+
+        poss_action_matrix = jnp.array([action_0, action_1, action_2, action_3])
+
+        return poss_action_matrix[actions, :]
 
     def generate_observation(self, ode_int_output, parameter_matrix):
         if self.obs_type == "agent_only":
@@ -250,27 +307,17 @@ class AYS_Environment(object):
 
         elif self.obs_type == "all_shared" and not self.trade_actions:
             result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
-            result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result), dim=1)  # 1 for each agent and then a overall, and yse for each agent
+            result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result),
+                               dim=1)  # 1 for each agent and then a overall, and yse for each agent
             return result, ode_int_output
 
         elif self.obs_type == "all_shared" and self.trade_actions:
             result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
             trade_action_list = ((parameter_matrix[:, -1] != 1).float()).repeat(self.num_agents, 1)
-            result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result, trade_action_list), dim=1)  # 1 for each agent and then a overall, and yse for each agent then the trade action list
+            result = torch.cat(
+                (torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result, trade_action_list),
+                dim=1)  # 1 for each agent and then a overall, and yse for each agent then the trade action list
             return result, ode_int_output
-
-    def _perform_step(self, action, next_t):
-
-        parameter_matrix = self._get_parameters(action)
-
-        parameter_vector = parameter_matrix.flatten()
-        parameter_vector = torch.cat((parameter_vector, torch.tensor([self.num_agents])))
-
-        ode_input = torch.cat((self.reward_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
-
-        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ode_input.flatten(), [self.t, next_t], args=tuple(parameter_vector.tolist()), mxstep=50000)
-
-        return torch.tensor(traj_one_step[1]).view(-1, 4), parameter_matrix  # A Y S E output
 
     def get_reward_function(self, action=None):
         def reward_distance_PB(agent):
@@ -393,11 +440,11 @@ class AYS_Environment(object):
         a = self.state[agent, 2]
 
         if torch.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
-                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] \
                 and torch.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
-        elif torch.abs(e - self.brown_fp[agent, 0]) < self.final_radius[agent]\
-                and torch.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent]\
+        elif torch.abs(e - self.brown_fp[agent, 0]) < self.final_radius[agent] \
+                and torch.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent] \
                 and torch.abs(a - self.brown_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
@@ -409,7 +456,7 @@ class AYS_Environment(object):
         a = self.state[agent, 2]
 
         if torch.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
-                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] \
                 and torch.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
@@ -419,8 +466,8 @@ class AYS_Environment(object):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
-        if np.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent]\
-                and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent]\
+        if np.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
+                and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] \
                 and np.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             return True
         else:
@@ -430,10 +477,12 @@ class AYS_Environment(object):
         e = self.state[agent, 0]
         y = self.state[agent, 1]
         a = self.state[agent, 2]
-        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] and np.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
+        if np.abs(a - self.green_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.green_fp[agent, 1]) < \
+                self.final_radius[agent] and np.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
             # print("ARRIVED AT GREEN FINAL STATE WITHOUT VIOLATING PB!")
             return Basins.GREEN_FP
-        elif np.abs(a - self.brown_fp[agent,  0]) < self.final_radius[agent] and np.abs(y - self.brown_fp[agent, 1]) < self.final_radius[agent] and np.abs(a - self.brown_fp[agent, 2]) < self.final_radius[agent]:
+        elif np.abs(a - self.brown_fp[agent, 0]) < self.final_radius[agent] and np.abs(y - self.brown_fp[agent, 1]) < \
+                self.final_radius[agent] and np.abs(a - self.brown_fp[agent, 2]) < self.final_radius[agent]:
             return Basins.BLACK_FP
         else:
             # return Basins.OUT_PB
@@ -458,30 +507,6 @@ class AYS_Environment(object):
 
         return self.state
 
-    def current_state_region_StartPoint(self):
-        self.state = torch.tensor([0, 0, 0]).repeat(self.num_agents, 1)
-        limit_start = 0.05
-
-        while not self._inside_planetary_boundaries_all():
-
-            adjustment = torch.tensor(
-                np.random.uniform(low=-limit_start, high=limit_start, size=(self.current_state.size(0), 2)))
-            self.state = self.current_state.clone()
-            self.state[:, :2] += adjustment
-
-            const_val = self.state[0, 0]
-            self.state[:, 0] = const_val
-
-            # homogeneous (comment out below if want heterogeneous)
-            if self.homogeneous:
-                all_equal = (self.state == self.state[0]).all()
-                if not all_equal:
-                    self.state[:] = self.state[0]
-
-            assert torch.allclose(self.state[:, 0], const_val), "First column values are not equal."
-
-        return self.state
-
     def _inside_box(self):
         """
         This function is needed to check whether our system leaves the predefined box (1,1,1).
@@ -494,56 +519,32 @@ class AYS_Environment(object):
                 inside_box = False
         return inside_box
 
-    def _get_parameters(self, action=None):
-
-        """
-        This function is needed to return the parameter set for the chosen management option.
-        Here the action numbers are really transformed to parameter lists, according to the chosen
-        management option.
-        Parameters:
-            -action_number: Number of the action in the actionset.
-             Can be transformed into: 'default', 'degrowth' ,'energy-transformation' or both DG and ET at the same time
-        """
-        if action is None:
-            action = torch.tensor(0).repeat(self.num_agents, 1)
-        #
-        # print(action)
-        # print(type(action))
-        # print(action[0])
-        # print(type(action[0]))
-        # sys.exit()
-
-        selected_rows = self.action_space[action.squeeze(), :]
-        if self.trade_actions:
-            action_matrix = selected_rows.view(self.num_agents, 3)
-        else:
-            action_matrix = selected_rows.view(self.num_agents, 2)
-
-        mask_1 = action_matrix[:, 0].unsqueeze(1)
-        mask_2 = action_matrix[:, 1].unsqueeze(1)
-        if self.trade_actions:
-            mask_3 = action_matrix[:, 2].unsqueeze(1)
-        else:
-            mask_3 = torch.tensor([False]).repeat(self.num_agents, 1)
-
-        if torch.all(mask_3):
-            pass
-        elif torch.any(mask_3):
-            mask_3 = ~mask_3
-        else:
-            pass
-
-        beta = torch.where(mask_1, self.beta_LG, self.beta)
-        sigma = torch.where(mask_2, self.sigma_ET, self.sigma)
-        trade = torch.where(mask_3, self.trade_inflicted, self.trade)  # only works with 2 agents atm need to change that later on
-
-        parameter_matrix = torch.cat((beta, self.eps, self.phi, self.rho, sigma, self.tau_A, self.tau_S, self.theta, trade), dim=1)
-
-        return parameter_matrix
-
     def get_plot_state_list(self):
         return self.state, self.reward_space
 
 
+def example():
+    num_agents = 5
+    key = jax.random.PRNGKey(0)
 
+    env = AYS_Environment()
 
+    obs, state = env.reset(key)
+    # env.render(state)
+
+    for _ in range(20):
+        key, key_reset, key_act, key_step = jax.random.split(key, 4)
+
+        # env.render(state)
+        print("obs:", obs)
+
+        # Sample random actions.
+        key_act = jax.random.split(key_act, env.num_agents)
+        actions = {agent: env.action_space[agent].sample(key_act[i]) for i, agent in enumerate(env.agents)}
+
+        # print("action:", env.game_actions_idx[actions[env.agents[state.agent_in_room]].item()])
+
+        # Perform the step transition.
+        obs, state, reward, done, infos = env.step(key_step, state, actions)
+
+        print("reward:", reward["agent_0"])

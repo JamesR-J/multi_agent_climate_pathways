@@ -1,6 +1,9 @@
 from absl import app, flags
 from .MARL_agent import MARL_agent
 import sys
+from .envs.AYS_JAX import AYS_Environment, example
+import jax
+import jax.random as jrandom
 
 
 _ANIMATION = flags.DEFINE_boolean("animation", False, "save gif of training or not")
@@ -45,21 +48,26 @@ _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
 
 def main(_):
-    if _CHKPT_LOAD.value:
-        chkpt_load_path = "need to define this"
-    else:
-        chkpt_load_path = None
-    marl_agent = MARL_agent(num_agents=_NUM_AGENTS.value, animation=_ANIMATION.value, wandb_save=_WANDB.value,
-                            model=_MODEL.value, test_actions=_TEST_ACTIONS.value, top_down=_TOP_DOWN.value,
-                            chkpt_load=_CHKPT_LOAD.value, chkpt_load_path=chkpt_load_path,
-                            reward_type=_REWARD_TYPE.value, obs_type=_OBS_TYPE.value,
-                            rational=_RATIONALITY.value, trade_actions=_TRADE_ACTIONS.value, algorithm=_RL_ALGO.value,
-                            homogeneous=_HOMOGENEOUS.value, seed=_SEED.value, rational_choice=_RATIONAL_CHOICE.value)
 
-    marl_agent.pretrained_agents_load(algorithm=_RL_ALGO.value)
-
-    marl_agent.training_run()
+    # if _CHKPT_LOAD.value:
+    #     chkpt_load_path = "need to define this"
+    # else:
+    #     chkpt_load_path = None
+    # marl_agent = MARL_agent(num_agents=_NUM_AGENTS.value, animation=_ANIMATION.value, wandb_save=_WANDB.value,
+    #                         model=_MODEL.value, test_actions=_TEST_ACTIONS.value, top_down=_TOP_DOWN.value,
+    #                         chkpt_load=_CHKPT_LOAD.value, chkpt_load_path=chkpt_load_path,
+    #                         reward_type=_REWARD_TYPE.value, obs_type=_OBS_TYPE.value,
+    #                         rational=_RATIONALITY.value, trade_actions=_TRADE_ACTIONS.value, algorithm=_RL_ALGO.value,
+    #                         homogeneous=_HOMOGENEOUS.value, seed=_SEED.value, rational_choice=_RATIONAL_CHOICE.value)
+    #
+    # marl_agent.pretrained_agents_load(algorithm=_RL_ALGO.value)
+    #
+    # marl_agent.training_run()
     # main_main()
+    # key = jrandom.PRNGKey(_SEED.value)
+    # env = AYS_Environment()
+    with jax.disable_jit():
+        example()
 
 
 if __name__ == '__main__':

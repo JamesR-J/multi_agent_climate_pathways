@@ -7,17 +7,20 @@ import numpy as np
 import warnings as warn
 import sys
 import torch
+import jax
+import jax.numpy as jnp
+import jax.random as jrandom
 
 
-# long name (command option line style) : short name (lower case)
-DEFAULT_NAME = "default"
-MANAGEMENTS = {
-    "degrowth": "dg",
-    "solar-radiation": "srm",
-    "energy-transformation": "et",
-    "carbon-capture-storage": "ccs",
-}
-
+# # long name (command option line style) : short name (lower case)
+# DEFAULT_NAME = "default"
+# MANAGEMENTS = {
+#     "degrowth": "dg",
+#     "solar-radiation": "srm",
+#     "energy-transformation": "et",
+#     "carbon-capture-storage": "ccs",
+# }
+#
 AYS_parameters = {}
 AYS_parameters["A_offset"] = 600  # pre-industrial level corresponds to A=0
 AYS_parameters["beta"] = 0.03  # 1/yr
@@ -69,46 +72,46 @@ def globalize_dictionary(dictionary, module="__main__"):
         if hasattr(module, key):
             warn.warn("overwriting global value / attribute '{}' of '{}'".format(key, module.__name__))
         setattr(module, key, val)
+#
+#
+# # JH: maybe transform the whole to log variables since W,S can go to infinity...
+# def _AYS_rhs(AYS, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
+#     A, W, S = AYS
+#     print(AYS)
+#     U = W / epsilon
+#     F = U / (1 + (S/sigma)**rho)
+#     R = U - F
+#     E = F / phi
+#     Adot = E - A / tau_A
+#     Wdot = (beta - theta * A) * W
+#     Sdot = R - S / tau_S
+#
+#     print(Adot)
+#     sys.exit()
+#
+#     return Adot, Wdot, Sdot
+#
+# #@jit(nopython=NB_USING_NOPYTHON)
+# def AYS_rescaled_rhs(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
+#     a, y, s = ays
+#     # print(ays)
+#     # A, y, s = Ays
+#
+#     s_inv = 1 - s
+#     s_inv_rho = s_inv ** rho
+#     K = s_inv_rho / (s_inv_rho + (S_mid * s / sigma) ** rho)
+#
+#     a_inv = 1 - a
+#     w_inv = 1 - y
+#     Y = W_mid * y / w_inv
+#     A = A_mid * a / a_inv
+#     adot = K / (phi * epsilon * A_mid) * a_inv * a_inv * Y - a * a_inv / tau_A
+#     ydot = y * w_inv * ( beta - theta * A )
+#     sdot = (1 - K) * s_inv * s_inv * Y / (epsilon * S_mid) - s * s_inv / tau_S
+#
+#     return adot, ydot, sdot
 
-
-# JH: maybe transform the whole to log variables since W,S can go to infinity...
-def _AYS_rhs(AYS, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
-    A, W, S = AYS
-    print(AYS)
-    U = W / epsilon
-    F = U / (1 + (S/sigma)**rho)
-    R = U - F
-    E = F / phi
-    Adot = E - A / tau_A
-    Wdot = (beta - theta * A) * W
-    Sdot = R - S / tau_S
-
-    print(Adot)
-    sys.exit()
-
-    return Adot, Wdot, Sdot
-
-#@jit(nopython=NB_USING_NOPYTHON)
-def AYS_rescaled_rhs(ays, t=0, beta=None, epsilon=None, phi=None, rho=None, sigma=None, tau_A=None, tau_S=None, theta=None):
-    a, y, s = ays
-    # print(ays)
-    # A, y, s = Ays
-
-    s_inv = 1 - s
-    s_inv_rho = s_inv ** rho
-    K = s_inv_rho / (s_inv_rho + (S_mid * s / sigma) ** rho)
-
-    a_inv = 1 - a
-    w_inv = 1 - y
-    Y = W_mid * y / w_inv
-    A = A_mid * a / a_inv
-    adot = K / (phi * epsilon * A_mid) * a_inv * a_inv * Y - a * a_inv / tau_A
-    ydot = y * w_inv * ( beta - theta * A )
-    sdot = (1 - K) * s_inv * s_inv * Y / (epsilon * S_mid) - s * s_inv / tau_S
-
-    return adot, ydot, sdot
-
-def AYS_rescaled_rhs_marl2(ays, t=0, *args):
+def AYS_rescaled_rhs_marl2(ayse, t=0, *args):
     """
     beta = args[0]
     epsilon = args[1]
@@ -122,15 +125,15 @@ def AYS_rescaled_rhs_marl2(ays, t=0, *args):
     """
     num_agents = int(args[-1])
 
-    ays = ays.reshape((-1, 4))
+    ayse = ayse.reshape((-1, 4))
 
-    args = np.array(args)[:-1].reshape((-1, 9))
+    args = jnp.array(args)[:-1].reshape((-1, 8))  # TODO it was 9 with ye old trade actions but have removed that
 
-    ays_matrix = torch.tensor(ays[:, 0:3])
-    # ays_matrix[:, 0] = 0.99
-    # ays_matrix[:, 1] = 0.99
-    # ays_matrix[:, 2] = 0.0
-    args = torch.tensor(args)
+    ays_matrix = jnp.array(ayse[:, 0:3])  # TODO idk if we need it to be a jax array tbh
+
+    # TODO check if need to clone and all that goodness idk if needed but am unsure
+    # TODO remove the trade actions thing but idk where I added it again lol need to check my dissertation as that will say
+
     ays_inv_matrix = 1 - ays_matrix
     ays_inv_s_rho_matrix = ays_inv_matrix.clone()
     ays_inv_s_rho_matrix[:, 2] = ays_inv_s_rho_matrix[:, 2] ** args[:, 3]
