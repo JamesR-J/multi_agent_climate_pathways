@@ -26,14 +26,14 @@ def main(_):
         if _USE_GPU.value:
             job_requirements = xm_cluster.JobRequirements(gpu=1, ram=8 * xm.GB)
         else:
-            job_requirements = xm_cluster.JobRequirements(ram=8 * xm.GB)
+            job_requirements = xm_cluster.JobRequirements(ram=32 * xm.GB)
         if _LAUNCH_ON_CLUSTER.value:
             # This is a special case for using SGE in UCL where we use generic
             # job requirements and translate to SGE specific requirements.
             # Non-UCL users, use `xm_cluster.GridEngine directly`.
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=200 * xm.Min,
+                walltime=60 * 48 * xm.Min,
             )
         else:
             executor = xm_cluster.Local(job_requirements)
