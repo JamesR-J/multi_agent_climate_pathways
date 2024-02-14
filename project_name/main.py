@@ -5,7 +5,8 @@ import sys
 
 _ANIMATION = flags.DEFINE_boolean("animation", False, "save gif of training or not")
 _TOP_DOWN = flags.DEFINE_boolean("top_down", False, "top down view or not")
-_WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
+_WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
+# _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
 
 # _RL_ALGO = flags.DEFINE_string("rl_algo", "PPO", "which rl algorithm to use")
 _RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
