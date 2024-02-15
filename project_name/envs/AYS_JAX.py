@@ -21,6 +21,7 @@ from inspect import currentframe, getframeinfo
 
 from .graph_functions import create_figure_ays
 from . import graph_functions as ays_plot, ays_model as ays
+from .ays_model import AYS_rescaled_rhs_marl2
 from flax import struct
 import chex
 import jax
@@ -29,6 +30,7 @@ import jax.random as jrandom
 from functools import partial
 from typing import Tuple, Dict
 from jaxmarl.environments.spaces import Discrete, MultiDiscrete
+from jax.experimental.ode import odeint
 
 
 # class Basins(Enum):
@@ -51,15 +53,8 @@ class EnvState:  # TODO fill this env state up as we need it basos
 
 
 class AYS_Environment(object):
-    dimensions = np.array(['A', 'Y', 'S'])
-    management_options = ['default', 'LG', 'ET', 'LG+ET']
-
-
-
-    possible_test_cases = [[0.4949063922255394, 0.4859623171738628, 0.5], [0.42610779, 0.52056811, 0.5]]
-
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=3, obs_type='all_agents', trade_actions=False, homogeneous=False):
+                 plot_progress=False, num_agents=3):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -80,10 +75,11 @@ class AYS_Environment(object):
         self.intSteps = 10  # integration Steps
         self.t = self.t0 = t0
         self.dt = dt
-
         self.sim_time_step = np.linspace(self.timeStart, dt, self.intSteps)
 
-        self.green_fp = torch.tensor([0, 1, 0]).repeat(self.num_agents, 1)
+        self.green_fp = jnp.tile([0, 1, 0], self.num_agents)  # TODO sort these out babY
+        print(self.green_fp)
+        sys.exit()
         self.brown_fp = torch.tensor([1, 0.4, 0.6]).repeat(self.num_agents, 1)
         self.final_radius = torch.tensor([0.05]).repeat(self.num_agents, 1)
         self.color_list = ays_plot.color_list
@@ -96,31 +92,7 @@ class AYS_Environment(object):
                              "LG+ET": 3}
         self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
         self.action_space = {i: Discrete(len(self.game_actions)) for i in self.agents}
-
-        # if self.trade_actions:
-        #     self.action_space = torch.tensor(
-        #         [[False, False, False], [True, False, False], [False, True, False], [True, True, False],
-        #          [False, False, True], [False, True, True], [True, False, True], [True, True, True]])
-        #     self.action_space_number = np.arange(len(self.action_space))
-
-        self.state = self.current_state = torch.tensor([0.5, 0.5, 0.5]).repeat(self.num_agents, 1)
-        self.reward_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 1003.04]).repeat(self.num_agents, 1)
-        self.obs_type = obs_type
-        print(f"Observation type: {self.obs_type}")
-        if self.obs_type == 'agent_only':
-            self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 20]).repeat(self.num_agents, 1)
-        elif self.obs_type == 'all_shared' and not self.trade_actions:
-            self.observation_space = torch.cat((torch.eye(self.num_agents),
-                                                torch.tensor([0.5]).repeat(self.num_agents, 1),
-                                                torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(
-                                                    self.num_agents, 1)), dim=1)
-        elif self.obs_type == "all_shared" and self.trade_actions:
-            self.observation_space = torch.cat((torch.eye(self.num_agents),
-                                                torch.tensor([0.5]).repeat(self.num_agents, 1),
-                                                torch.tensor([0.5, 0.5, 10.0 / 20] * self.num_agents).repeat(
-                                                    self.num_agents, 1),
-                                                torch.tensor([0.0] * self.num_agents).repeat(self.num_agents, 1)),
-                                               dim=1)
+        self.observation_space = torch.tensor([0.5, 0.5, 0.5, 10.0 / 20]).repeat(self.num_agents, 1)  # TODO sort this out basos
 
         """
         This values define the planetary boundaries of the AYS model
@@ -143,10 +115,6 @@ class AYS_Environment(object):
         self.PB_4 = torch.cat((self.A_PB,
                                torch.tensor([0.0]).repeat(self.num_agents, 1),
                                torch.tensor([0.0]).repeat(self.num_agents, 1)), dim=1)  # AYS
-
-        self.old_reward = torch.tensor([0.0]).repeat(self.num_agents, 1)
-
-        self.homogeneous = homogeneous
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key: chex.PRNGKey):
@@ -173,6 +141,7 @@ class AYS_Environment(object):
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_obs(self, state: EnvState) -> Dict:
+        # should do partial and full obs options maybe?
         return state  # TODO reimplement this a lot better
 
     @partial(jax.jit, static_argnums=(0,))
@@ -199,77 +168,75 @@ class AYS_Environment(object):
         actions = jnp.array([actions[i] for i in self.agents])
         ayse = state.ayse
 
-        # next_t = self.t + self.dt
-        step = state.step + 1
+        step = state.step + 1  # TODO should it be 1 or dt
 
         action_matrix = self._get_parameters(actions)
 
-        # from jax.experimental.ode import odeint
-        from scipy.integrate import odeint
+        traj_one_step = odeint(self._AYS_rescaled_rhs_marl, ayse, jnp.array([state.step, step], dtype=jnp.float32),
+                               action_matrix, mxstep=50000)
+        # TODO results match if it is using x64 bit precision but basically close with x32, worth mentioning in paper
 
-        # flatten input matrix and add number of agents
-        action_vector = jnp.concatenate((action_matrix.ravel(), jnp.array((self.num_agents,))))
+        new_state = traj_one_step[1]
+        new_obs = self._get_obs(new_state)
+        assert jnp.all(new_state[:, 0] == new_state[0, 0]), "A - First column values are not equal."  # TODO works if don't call early stop stuff if you remember
 
-        # ode_input = torch.cat((self.reward_space[:, 0:3], torch.zeros((self.num_agents, 1))), dim=1)
+        # check if terminal, think we do total terminal or not
+        rewards = self._get_rewards()
 
-        print(ayse.ravel())
+        # do the agent dones as well idk if it be useful for later on
+        dones = {agent: self._inside_planetary_boundaries(new_state, agent_index) for agent_index, agent in enumerate(self.agents)}  # TODO there may be a way to avoid indexs and instaed use the agent names here
 
-        traj_one_step = odeint(ays.AYS_rescaled_rhs_marl2, ayse.ravel(), [state.step, step],
-                               args=tuple(action_vector.tolist()), mxstep=50000)
-        print(traj_one_step)
-        sys.exit()
+        # reward function innit
+        rewards = "asdf"
 
-        result = torch.tensor(traj_one_step[1]).view(-1, 4)
+        # for agent in range(self.num_agents):
+        #     if self._arrived_at_final_state(agent):
+        #         self.final_state[agent] = True
+        #     if self.reward_type[agent] == "PB":  # or self.reward_type[agent] == "PB_new_new_new_new":
+        #         if not self._inside_planetary_boundaries(agent):
+        #             self.final_state[agent] = True
+        #     else:
+        #         if not self._inside_A_pb(agent):
+        #             self.final_state[agent] = True
+        #
+        # # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state  # this is the One Stop strategy
+        # #     if torch.any(self.final_state):
+        # #         for agent in range(self.num_agents):
+        # #             if self.final_state[agent]:
+        # #                 if self.green_fixed_point(agent):
+        # #                     pass
+        # #                 else:
+        # #                     self.final_state = torch.tensor([True]).repeat(self.num_agents, 1)
+        #
+        # if torch.all(self.final_state):
+        #     for agent in range(self.num_agents):
+        #         if self.trade_actions:
+        #             if self.reward_type[agent] == "PB" or self.reward_type[agent] == "IPB":
+        #                 e = self.state[agent, 0]
+        #                 y = self.state[agent, 1]
+        #                 a = self.state[agent, 2]
+        #                 if torch.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
+        #                         and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] \
+        #                         and torch.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
+        #                     self.reward[agent] += 10
+        #
+        #         self.reward[agent] += self.calculate_expected_final_reward(agent)
+        # else:
+        #     self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
 
-        self.state[:, 0] = result[:, 3].clone()
-        self.state[:, 1] = result[:, 1].clone()
-        self.state[:, 2] = result[:, 0].clone()
-        self.observation_space, self.reward_space = self.generate_observation(result, parameter_matrix)
+        # set all done if the state is terminal
+        dones["__all__"] = self._inside_planetary_boundaries_all(new_state)
 
-        if not self.final_state.bool().any():
-            assert torch.all(self.state[:, 2] == self.state[0, 2]), "Values in the A column are not all equal"
+        # add infos
+        info = "returns maybe idk"  # TODO think need to add some element of win ratio here so can figure out if agent wins or not
 
-        self.t = next_t
+        env_state = EnvState(ayse=new_state,
+                             terminal=jnp.array(False),  # TODO adjust this thing
+                             step=step)
 
-        self.get_reward_function(action)
+        return new_obs, env_state, rewards, dones, info
 
-        for agent in range(self.num_agents):
-            if self._arrived_at_final_state(agent):
-                self.final_state[agent] = True
-            if self.reward_type[agent] == "PB":  # or self.reward_type[agent] == "PB_new_new_new_new":
-                if not self._inside_planetary_boundaries(agent):
-                    self.final_state[agent] = True
-            else:
-                if not self._inside_A_pb(agent):
-                    self.final_state[agent] = True
-
-        # if not self.trade_actions:  # if using trade actions then this does not apply as the reward functions may not use same definition of reaching a final state  # this is the One Stop strategy
-        #     if torch.any(self.final_state):
-        #         for agent in range(self.num_agents):
-        #             if self.final_state[agent]:
-        #                 if self.green_fixed_point(agent):
-        #                     pass
-        #                 else:
-        #                     self.final_state = torch.tensor([True]).repeat(self.num_agents, 1)
-
-        if torch.all(self.final_state):
-            for agent in range(self.num_agents):
-                if self.trade_actions:
-                    if self.reward_type[agent] == "PB" or self.reward_type[agent] == "IPB":
-                        e = self.state[agent, 0]
-                        y = self.state[agent, 1]
-                        a = self.state[agent, 2]
-                        if torch.abs(e - self.green_fp[agent, 0]) < self.final_radius[agent] \
-                                and torch.abs(y - self.green_fp[agent, 1]) < self.final_radius[agent] \
-                                and torch.abs(a - self.green_fp[agent, 2]) < self.final_radius[agent]:
-                            self.reward[agent] += 10
-
-                self.reward[agent] += self.calculate_expected_final_reward(agent)
-        else:
-            self.final_state = torch.tensor([False]).repeat(self.num_agents, 1)
-
-        return obs_st, states_st, rewards, dones, infos
-
+    @partial(jax.jit, static_argnums=(0,))
     def _get_parameters(self, actions):
 
         """
@@ -301,25 +268,55 @@ class AYS_Environment(object):
 
         return poss_action_matrix[actions, :]
 
-    def generate_observation(self, ode_int_output, parameter_matrix):
-        if self.obs_type == "agent_only":
-            return ode_int_output, ode_int_output
+    @partial(jax.jit, static_argnums=(0,))
+    def _ays_rescaled_rhs_marl(self, ayse, t, args):
+        """
+        beta    = 0.03/0.015 = args[0]
+        epsilon = 147        = args[1]
+        phi     = 4.7e10     = args[2]
+        rho     = 2.0        = args[3]
+        sigma   = 4e12/sigma * 0.5 ** (1 / rho) = args[4]
+        tau_A   = 50         = args[5]
+        tau_S   = 50         = args[6]
+        theta   = beta / (950 - A_offset) = args[7]
+        # trade = args[8]
+        """
+        A_mid = 250  # TODO should these change with the different starting points though? idk yikes !!!I think so!!!
+        Y_mid = 7e13
+        S_mid = 5e11
+        E_mid = 10.01882267  # TODO is this correct idk?
+        # TODO how will this work with multi-agent though, could this be an input, but then again how would it work marl?
 
-        elif self.obs_type == "all_shared" and not self.trade_actions:
-            result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
-            result = torch.cat((torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result),
-                               dim=1)  # 1 for each agent and then a overall, and yse for each agent
-            return result, ode_int_output
+        ays_inv_matrix = 1 - ayse
+        # inv_s_rho = ays_inv_matrix.copy()
+        inv_s_rho = ays_inv_matrix.at[:, 2].power(args[:, 3])
+        # A_matrix = (A_mid * ays_matrix[:, 0] / ays_inv_matrix[:, 0]).view(2, 1)
 
-        elif self.obs_type == "all_shared" and self.trade_actions:
-            result = ode_int_output[:, 1:].flatten().repeat(self.num_agents, 1)
-            trade_action_list = ((parameter_matrix[:, -1] != 1).float()).repeat(self.num_agents, 1)
-            result = torch.cat(
-                (torch.eye(self.num_agents), ode_int_output[:, 0].view(self.num_agents, 1), result, trade_action_list),
-                dim=1)  # 1 for each agent and then a overall, and yse for each agent then the trade action list
-            return result, ode_int_output
+        # Normalise
+        A_matrix = A_mid * (ayse[:, 0] / ays_inv_matrix[:, 0])
+        Y_matrix = Y_mid * (ayse[:, 1] / ays_inv_matrix[:, 1])
+        G_matrix = inv_s_rho[:, 2] / (inv_s_rho[:, 2] + (S_mid * ayse[:, 2] / args[:, 4]) ** args[:, 3])
+        E_matrix = G_matrix / (args[:, 2] * args[:, 1]) * Y_matrix
+        E_tot = jnp.sum(E_matrix) / E_matrix.shape[0]  # TODO added divide by agents, need to check is correct response
 
-    def get_reward_function(self, action=None):
+        adot = (E_tot - (A_matrix / args[:, 5])) * ays_inv_matrix[:, 0] * ays_inv_matrix[:,
+                                                                          0] / A_mid  # TODO check this maths
+        # adot = G_matrix / (args[:, 2] * args[:, 1] * A_mid) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] * Y_matrix - ayse[:, 0] * ays_inv_matrix[:, 0] / args[:, 5]
+        ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix)
+        sdot = (1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) - ayse[:,
+                                                                                                                2] * ays_inv_matrix[
+                                                                                                                     :,
+                                                                                                                     2] / args[
+                                                                                                                          :,
+                                                                                                                          6]
+
+        E_output = E_matrix / (E_matrix + E_mid)
+
+        return jnp.concatenate(
+            (adot[:, jnp.newaxis], ydot[:, jnp.newaxis], sdot[:, jnp.newaxis], E_output[:, jnp.newaxis]), axis=1)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def _get_rewards(self, action=None):
         def reward_distance_PB(agent):
             if self._inside_planetary_boundaries(agent):
                 self.reward[agent] = torch.norm(self.reward_space[agent, :3] - self.PB_2[agent])
@@ -371,6 +368,8 @@ class AYS_Environment(object):
                 self.print_debug_info()
                 sys.exit(1)
 
+        return "rewards"  # TODO implement rewards all in one somehow
+
     def calculate_expected_final_reward(self, agent):
         """
         Get the reward in the last state, expecting from now on always default.
@@ -412,26 +411,26 @@ class AYS_Environment(object):
             # print("Outside PB!")
         return is_inside
 
-    def _inside_planetary_boundaries(self, agent):
-        e = self.state[agent, 0]
-        y = self.state[agent, 1]
-        a = self.state[agent, 2]
+    @partial(jax.jit, static_argnums=(0,))
+    def _inside_planetary_boundaries(self, ayse, agent_index):  # TODO can we subsume all into the individual somehow
+        e = ayse[agent_index, 3]
+        y = ayse[agent_index, 1]
+        a = ayse[agent_index, 0]
         is_inside = True
 
-        if a > self.A_PB[agent] or y < self.Y_SF[agent] or e > self.E_LIMIT[agent]:
+        if a > self.A_PB[agent_index] or y < self.Y_SF[agent_index] or e > self.E_LIMIT[agent_index]:
             is_inside = False
-            # print("Outside PB!")
         return is_inside
 
-    def _inside_planetary_boundaries_all(self):
-        e = self.state[:, 0]
-        y = self.state[:, 1]
-        a = self.state[:, 2]
+    @partial(jax.jit, static_argnums=(0,))
+    def _inside_planetary_boundaries_all(self, ayse):
+        e = ayse[:, 3]
+        y = ayse[:, 1]
+        a = ayse[:, 0]
         is_inside = True
 
-        if torch.all(a > self.A_PB) or torch.all(y < self.Y_SF) or torch.all(e > self.E_LIMIT):
+        if jnp.all(a > self.A_PB) or jnp.all(y < self.Y_SF) or jnp.all(e > self.E_LIMIT):
             is_inside = False
-            # print("Outside PB!")
         return is_inside
 
     def _arrived_at_final_state(self, agent):
@@ -536,7 +535,7 @@ def example():
         key, key_reset, key_act, key_step = jax.random.split(key, 4)
 
         # env.render(state)
-        print("obs:", obs)
+        # print("obs:", obs)
 
         # Sample random actions.
         key_act = jax.random.split(key_act, env.num_agents)

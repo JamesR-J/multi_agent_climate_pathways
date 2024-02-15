@@ -111,47 +111,51 @@ def globalize_dictionary(dictionary, module="__main__"):
 #
 #     return adot, ydot, sdot
 
-def AYS_rescaled_rhs_marl2(ayse, t=0, *args):
+def AYS_rescaled_rhs_marl2(ayse, t, args):
     """
-    beta = args[0]
-    epsilon = args[1]
-    phi = args[2]
-    rho = args[3]
-    sigma = args[4]
-    tau_A = args[5]
-    tau_S = args[6]
-    theta = args[7]
-    trade = args[8]
+    beta    = 0.03/0.015 = args[0]
+    epsilon = 147        = args[1]
+    phi     = 4.7e10     = args[2]
+    rho     = 2.0        = args[3]
+    sigma   = 4e12/sigma * 0.5 ** (1 / rho) = args[4]
+    tau_A   = 50         = args[5]
+    tau_S   = 50         = args[6]
+    theta   = beta / (950 - A_offset) = args[7]
+    # trade = args[8]
     """
-    num_agents = int(args[-1])
+    A_mid = 250  # TODO should these change with the different starting points though? idk yikes !!!I think so!!!
+    Y_mid = 7e13
+    S_mid = 5e11
+    E_mid = 0  # TODO needs to add as an argument basically unless it is first step
+    # TODO when first run it can calc the intro emissions that be used for E_mid
+    # TODO how will this work with multi-agent though
 
-    ayse = ayse.reshape((-1, 4))
+    print(ayse)
+    print(args)
 
-    args = jnp.array(args)[:-1].reshape((-1, 8))  # TODO it was 9 with ye old trade actions but have removed that
 
-    ays_matrix = jnp.array(ayse[:, 0:3])  # TODO idk if we need it to be a jax array tbh
-
-    # TODO check if need to clone and all that goodness idk if needed but am unsure
-    # TODO remove the trade actions thing but idk where I added it again lol need to check my dissertation as that will say
-
-    ays_inv_matrix = 1 - ays_matrix
-    ays_inv_s_rho_matrix = ays_inv_matrix.clone()
-    ays_inv_s_rho_matrix[:, 2] = ays_inv_s_rho_matrix[:, 2] ** args[:, 3]
+    ays_inv_matrix = 1 - ayse
+    # inv_s_rho = ays_inv_matrix.copy()
+    inv_s_rho = ays_inv_matrix.at[:, 2].power(args[:, 3])[:, 2]
     # A_matrix = (A_mid * ays_matrix[:, 0] / ays_inv_matrix[:, 0]).view(2, 1)
-    A_matrix = (A_mid * ays_matrix[0, 0].repeat(num_agents, 1) / ays_inv_matrix[0, 0].repeat(num_agents, 1)).view(num_agents, 1)
-    Y_matrix = (W_mid * ays_matrix[:, 1] / ays_inv_matrix[:, 1]).view(num_agents, 1)
-    K_matrix = (ays_inv_s_rho_matrix[:, 2] / (ays_inv_s_rho_matrix[:, 2] + (S_mid * ays_matrix[:, 2] / args[:, 4]) ** args[:, 3])).view(num_agents, 1)
-    E_matrix = K_matrix / (args[:, 2] * args[:, 1]).view(num_agents, 1) * Y_matrix
-    E_tot = torch.sum(E_matrix).repeat(num_agents, 1) / num_agents
 
-    adot = (E_tot - (A_matrix / args[:, 5].view(num_agents, 1))) * (ays_inv_matrix[0, 0].repeat(num_agents, 1) * ays_inv_matrix[0, 0].repeat(num_agents, 1) / A_mid).view(num_agents, 1)
-    ydot = (ays_matrix[:, 1] * ays_inv_matrix[:, 1]).view(num_agents, 1) * (args[:, 0].view(num_agents, 1) - args[:, 7].view(num_agents, 1) * A_matrix * args[:, 8].view(num_agents, 1))
-    sdot = (1 - K_matrix) * (ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2]).view(num_agents, 1) * Y_matrix / (args[:, 1] * S_mid).view(num_agents, 1) - (ays_matrix[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]).view(num_agents, 1)
+    # Normalise
+    A_matrix = A_mid * (ayse[:, 0] / ays_inv_matrix[:, 0])
+    Y_matrix = Y_mid * (ayse[:, 1] / ays_inv_matrix[:, 1])
+    G_matrix = inv_s_rho / (inv_s_rho + (S_mid * ayse[:, 2] / args[:, 4]) ** args[:, 3])
+    E_matrix = G_matrix / args[:, 2] * Y_matrix
+    # E_tot = jnp.tile((jnp.sum(E_matrix) / num_agents), (num_agents, 1))  # TODO check this as number seems tinY
+    E_tot = jnp.sum(E_matrix)
 
-    E_matrix /= 20  # 1003.04  # 1003.04 is the max but just using 20 for now
-    final_matrix = torch.cat((adot, ydot, sdot, E_matrix), dim=1)
+    adot = (E_tot - (A_matrix / args[:, 5])) * (ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] / A_mid)  # TODO check this maths
+    # adot = G_matrix / (phi * epsilon * A_mid) * (ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0]).reshape(-1, 1) * Y_matrix - (ays_matrix[:, 0] * ays_inv_matrix[:, 0]).reshape(-1, 1) / tau_A  # TODO this won't work in current stage cus of combined A
+    ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix)
+    sdot = (1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) - ayse[:, 2] * ays_inv_matrix[:, 2] / args[:, 6]
 
-    return final_matrix.flatten()
+    # E_output = E_matrix / (E_matrix + E_mid)  # TODO sort out for later - maybe add a flag so it uses the made E_matrix as E_mid if flag True and then otherwise uses the fed in argument
+    E_output = E_matrix
+
+    return jnp.concatenate((adot[:, jnp.newaxis], ydot[:, jnp.newaxis], sdot[:, jnp.newaxis], E_output[:, jnp.newaxis]), axis=1)
 
 
 
