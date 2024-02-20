@@ -6,7 +6,7 @@ from __future__ import division, print_function
 import numpy as np
 import warnings as warn
 import sys
-import torch
+# import torch
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom

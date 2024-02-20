@@ -1,25 +1,30 @@
 from absl import app, flags
-from .MARL_agent import MARL_agent
 import sys
 from .envs.AYS_JAX import AYS_Environment, example
 import jax
 import jax.random as jrandom
-
+from .jaxmarl_ippo import make_train
+import yaml
+import wandb
 
 _ANIMATION = flags.DEFINE_boolean("animation", False, "save gif of training or not")
 _TOP_DOWN = flags.DEFINE_boolean("top_down", False, "top down view or not")
-_WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
+_WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
+# _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
+
+# _DISABLE_JIT = flags.DEFINE_boolean("disable jit", False, "jit or not for debugging")
+_DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
 # _RL_ALGO = flags.DEFINE_string("rl_algo", "PPO", "which rl algorithm to use")
-_RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
+# _RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
 # parser.add_argument('--algorithm', default="DQN")
 # parser.add_argument('--algorithm', default="MADDPG")
 
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether to be homogeneous or not")
-_CHKPT_LOAD = flags.DEFINE_boolean("chpt_load", False, "whether to load from checkpoint")
+_CHKPT_LOAD = flags.DEFINE_boolean("chkpt_load", False, "whether to load from checkpoint")
 # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
 
-_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB"], "what reward function to use")
+_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB", "PB"], "what reward function to use")
 # parser.add_argument('--reward_type', default=["PB"])
 # parser.add_argument('--reward_type', default=["IPB"])
 # parser.add_argument('--reward_type', default=["max_A"])
@@ -33,22 +38,13 @@ _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB"], "what reward funct
 _OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation type to use")
 # parser.add_argument('--observation_type', default="all_shared")
 
-_RATIONALITY = flags.DEFINE_list("rationality", [True, True], "whether to be rational or not per agent")
-
-_RATIONAL_CHOICE = flags.DEFINE_string("rational_choice", "2nd_best", "which rational choice to use")
-# parser.add_argument('--rational_choice', default="random")
-
-_TRADE_ACTIONS = flags.DEFINE_boolean("trade_actions", False, "whether to trade or not, only works for two agents")
-
 _TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
-_MODEL = flags.DEFINE_string("model", "ays", "ays or rice-n")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 3, "number of agents")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
 
 def main(_):
-
     # if _CHKPT_LOAD.value:
     #     chkpt_load_path = "need to define this"
     # else:
@@ -66,8 +62,27 @@ def main(_):
     # main_main()
     # key = jrandom.PRNGKey(_SEED.value)
     # env = AYS_Environment()
-    with jax.disable_jit():
-        example()
+    # with jax.disable_jit():
+    #     example()
+    with open("project_name/ippo_ff.yaml", "r") as file:
+        config = yaml.safe_load(file)
+    config["SEED"] = _SEED.value
+    config["NUM_AGENTS"] = _NUM_AGENTS.value
+    config["REWARD_TYPE"] = _REWARD_TYPE.value
+
+    if _WANDB.value:
+        wandb_mode = "online"
+    else:
+        wandb_mode = "disabled"
+
+    wandb.init(entity="jamesr-j",
+               config=config,
+               mode=wandb_mode)
+
+    rng = jax.random.PRNGKey(config["SEED"])
+    train_jit = jax.jit(make_train(config), device=jax.devices()[0])
+    with jax.disable_jit(disable=_DISABLE_JIT.value):
+        out = train_jit(rng)
 
 
 if __name__ == '__main__':

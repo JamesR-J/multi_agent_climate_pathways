@@ -8,7 +8,7 @@ in combination with the DRL-agent.
 """
 
 import sys
-import torch
+# import torch
 import os
 
 import numpy as np
