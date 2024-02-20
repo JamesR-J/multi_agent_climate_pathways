@@ -177,17 +177,11 @@ class AYS_Environment(object):
 
         obs_re, states_re, graph_states_re = self.reset(key_reset)
 
-        print(graph_states_re)
-        print(graph_states_st)
-
         # Auto-reset environment based on termination
         states = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), states_re, states_st)
         obs = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), obs_re, obs_st)
         graph_states = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), graph_states_re,
                                     graph_states_st)
-
-        print(graph_states)
-        print("NEW ONE HERE")
 
         # add info stuff idk if right spot
         def _batchify_floats(x: dict):
@@ -564,7 +558,6 @@ class AYS_Environment(object):
         #      agent in self.agents)])
         # image = Image.frombytes("RGB", fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
         # return image
-
 
         plt.savefig(f"project_name/images/{graph_states.shape[0]}.png")
         plt.close()

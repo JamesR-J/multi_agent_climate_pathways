@@ -141,7 +141,7 @@ def make_train(config):
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_ENVS"])
-                obsv, env_state, reward, done, info, graph_state = jax.vmap(env.step)(rng_step, env_state, env_act, env_graph_state)
+                obsv, env_state, reward, done, info, env_graph_state = jax.vmap(env.step)(rng_step, env_state, env_act, env_graph_state)
                 # print(env_state)
 
                 # info = jax.tree_map(lambda x: x.reshape((config["NUM_ACTORS"])), info)  # it used to be done by actors but now each env has the number of agent causations
@@ -155,7 +155,7 @@ def make_train(config):
                     info,
                 )
 
-                env.render(env_graph_state[0])  # TODO is this the best way to do it? renders just the first env
+                # env.render(env_graph_state[0])  # TODO is this the best way to do it? renders just the first env
 
                 runner_state = (train_state, env_state, obsv, env_graph_state, rng)
                 return runner_state, transition
@@ -313,7 +313,7 @@ def make_train(config):
             # metric = {**metric, **loss_info}
 
             metric["update_steps"] = update_steps
-            # jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric)
             update_steps = update_steps + 1
             runner_state = (train_state, env_state, last_obs, graph_state, rng)
             return (runner_state, update_steps), metric
