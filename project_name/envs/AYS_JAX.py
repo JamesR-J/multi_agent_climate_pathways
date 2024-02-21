@@ -69,7 +69,9 @@ class AYS_Environment(object):
 
         self.num_agents = num_agents
         self.agents = [f"agent_{i}" for i in range(num_agents)]
-        self.agent_ids = {agent: i for i, agent in enumerate(self.agents)}  # TODO use this more
+        self.agent_ids = {agent: i for i, agent in enumerate(self.agents)}
+        self.vmap_ids = jnp.arange(self.num_agents).reshape(self.num_agents,
+                                                            1)  # TODO can get this to work better with the above ids?
 
         self.final_state = jnp.tile(jnp.array([False]), self.num_agents)
         self.reward_type = reward_type  # TODO is there a better way to do this with agent names
@@ -81,7 +83,7 @@ class AYS_Environment(object):
         self.dt = dt
         self.sim_time_step = jnp.linspace(self.timeStart, dt, self.intSteps)
 
-        self.green_fp = jnp.array([0.0, 1.0, 0.0, 0.0])  # ayse
+        self.green_fp = jnp.array([0.0, 1.0, 1.0, 0.0])  # ayse
         self.black_fp = jnp.array([0.6, 0.4, 0.0, 1.0])  # ayse idk what e should be really
         self.final_radius = jnp.array([0.05])
         self.color_list = ays_plot.color_list
@@ -92,8 +94,7 @@ class AYS_Environment(object):
                              "LG+ET": 3}
         self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
         self.action_space = {i: Discrete(len(self.game_actions)) for i in self.agents}
-        self.observation_space = {i: Box(low=0.0, high=1.0, shape=(5,)) for i in
-                                  self.agents}  # TODO are you meant to add actions to obervation space I forget
+        self.observation_space = {i: Box(low=0.0, high=1.0, shape=(5,)) for i in self.agents}  # TODO remove hardcoding
 
         """
         This values define the planetary boundaries of the AYS model
@@ -141,15 +142,15 @@ class AYS_Environment(object):
                              prev_actions=jnp.zeros((self.num_agents,), dtype=jnp.int32),
                              dones={agent: jnp.array(False) for agent in ["__all__"] + self.agents},
                              terminal=jnp.array(False),
-                             done_causation={agent: 0 for agent in self.agents},
+                             done_causation={agent: jnp.array([0]) for agent in self.agents},
                              step=jnp.array(0))
         wrapper_state = InfoState(env_state,
                                   jnp.zeros((self.num_agents,)),
-                                  jnp.zeros(1),
+                                  jnp.zeros((1,)),
                                   0.0,
                                   jnp.zeros((self.num_agents,)),
-                                  jnp.zeros(1),
-                                  jnp.zeros(1),
+                                  jnp.zeros((1,)),
+                                  jnp.zeros((1,)),
                                   )
 
         graph_state = jnp.zeros((self.max_steps, self.num_agents, 4))
@@ -170,10 +171,8 @@ class AYS_Environment(object):
              actions: Dict[str, chex.Array],
              graph_state: chex.Array
              ) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], Dict]:
-        """Performs step transitions in the environment."""
-
         key, key_reset = jax.random.split(key)
-        obs_st, states_st, rewards, dones, infos, graph_states_st = self.step_env(key, state, actions, graph_state)
+        obs_st, states_st, rewards, dones, done_causations, infos, graph_states_st = self.step_env(key, state, actions, graph_state)
 
         obs_re, states_re, graph_states_re = self.reset(key_reset)
 
@@ -188,13 +187,21 @@ class AYS_Environment(object):
             return jnp.stack([x[a] for a in self.agents])
 
         ep_done = dones["__all__"]
-        batch_reward = _batchify_floats(rewards)
         new_episode_return = state.episode_returns + _batchify_floats(rewards)
         new_episode_length = state.episode_lengths + 1
-        new_won_episode = jnp.any(
-            jnp.array([infos["agent_done_causation"][agent] for agent in self.agents]) == 1).astype(
-            dtype=jnp.float32)  # TODO check this works - also make sure doesn't randomly say 1 and uses another win
-        # TODO need to think about if both agents end etc if the above would work
+
+        # print(ep_done)
+        # print(done_causations)
+        # done_causations = done_causations.at[0].set(1)
+        # print(done_causations)
+        new_won_episode = jnp.any(done_causations == 1).astype(dtype=jnp.float32)
+        # TODO win for just one agent reaching the point
+        # print(new_won_episode)
+        # print(new_won_episode * (1 - ep_done))
+        # print(4 * (1 - ep_done) + new_won_episode * ep_done)
+        # print("END OF STEP")
+        # sys.exit()
+
         wrapper_state = InfoState(env_state=states.env_state,
                                   won_episode=new_won_episode * (1 - ep_done),
                                   episode_returns=new_episode_return * (1 - ep_done),
@@ -206,21 +213,21 @@ class AYS_Environment(object):
                                   returned_won_episode=state.returned_won_episode * (
                                           1 - ep_done) + new_won_episode * ep_done,
                                   )
-        infos["returned_episode_returns"] = state.returned_episode_returns
-        infos["returned_episode_lengths"] = state.returned_episode_lengths
-        infos["returned_won_episode"] = state.returned_won_episode
+        infos["returned_episode_returns"] = wrapper_state.returned_episode_returns
+        infos["returned_episode_lengths"] = jnp.full((self.num_agents,), wrapper_state.returned_episode_lengths)
+        infos["returned_won_episode"] = jnp.full((self.num_agents,), wrapper_state.returned_won_episode)
         infos["returned_episode"] = jnp.full((self.num_agents,), ep_done)
 
         return obs, wrapper_state, rewards, dones, infos, graph_states
 
     @partial(jax.jit, static_argnums=(0,))
     def step_env(self, key: chex.PRNGKey, state: InfoState, actions: dict, graph_state: chex.Array) -> Tuple[
-        Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], Dict]:
+        Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], chex.Array, Dict, chex.Array]:
         actions = jnp.array([actions[i] for i in self.agents])
 
         step = state.env_state.step + 1  # TODO should it be 1 or dt
 
-        action_matrix = self._get_parameters(actions).squeeze(axis=1)
+        action_matrix = self._get_parameters(actions)  # .squeeze(axis=1)
 
         input_state = state.env_state.ayse.at[:, 3].set(0.0)  # resets emissions to 0 otherwise it effects the sim
         traj_one_step = odeint(self._ays_rescaled_rhs_marl, input_state,
@@ -229,49 +236,58 @@ class AYS_Environment(object):
         # TODO results match if it is using x64 bit precision but basically close with x32, worth mentioning in paper
 
         new_state = traj_one_step[1]
-        # assert jnp.all(new_state[:, 0] == new_state[0, 0]), "A - First column values are not equal."  # TODO make the above work
+        # assert jnp.all(new_state[:, 0] == new_state[0, 0]), "A - First column values are not equal."
+        # TODO make the above work
         # TODO above works if don't call early stop stuff if you remember
 
         graph_state = graph_state.at[step, :].set(new_state)  # TODO check the step thing works and is correctly defined
-        # print(step)
-        # print(graph_state)
 
         env_state = state.env_state
-
         env_state = env_state.replace(ayse=new_state,
-                                      prev_actions=actions.squeeze(),
+                                      prev_actions=actions,  # .squeeze(axis=1),
                                       step=step,
-                                      terminal=self._terminal_state(new_state, step),
-                                      # TODO check terminal works basically for both cases and whether it is being called on the right state
-                                      )
+                                      terminal=self._terminal_state(new_state, step))
 
         # convert state to obs
         obs = self._get_obs(env_state)
 
-        # do the agent dones as well idk if it be useful for later on
-        dones = {agent: jnp.logical_or(~self._inside_planetary_boundaries(new_state, self.agent_ids[agent]),
-                                       self._arrived_at_final_state(new_state, self.agent_ids[agent])) for agent in
-                 self.agents}  # TODO check the tilde actually works
+        # do the agent dones
+        pre_dict_dones = jnp.logical_or(jax.vmap(self._arrived_at_final_state)(new_state),
+                                        ~jax.vmap(self._inside_planetary_boundaries)(new_state))
+        dones = {agent: pre_dict_dones[self.agent_ids[agent]] for agent in self.agents}
+        dones["__all__"] = env_state.terminal
+        env_state = env_state.replace(dones=dones)
 
         # reward function innit
         rewards = self._get_rewards(env_state.ayse)
 
         # for agent in self.agents:  # TODO is this okay idk? do we want expected final reward
         #     if dones[agent]:
-        #         rewards = rewards.at(self.agent_ids[agent]).set(self._calculate_expected_final_reward(rewards, self.agent_ids[agent], step))  # TODO is this step right here or should it be last step? also can this be improved if used
+        #         rewards = rewards.at(self.agent_ids[agent]).set(self._calculate_expected_final_reward(rewards, self.agent_ids[agent], step))
+        # TODO is this step right here or should it use the last step number? also can this be improved if used
 
-        dones["__all__"] = env_state.terminal
-        env_state = env_state.replace(dones=dones)
-        env_state = self._done_causation(env_state)
+        # print(new_state)
+        # new_state = new_state.at[0, :].set(jnp.array([0.6, 0.4, 0, 0]))
+        # new_state = new_state.at[1, :].set(jnp.array([0, 1, 1, 0]))
+        # new_state = new_state.at[2, :].set(jnp.array([0.5, 0.5, 0.5, 0]))
+        # pre_dict_dones = pre_dict_dones.at[0].set(True)
+        # pre_dict_dones = pre_dict_dones.at[1].set(True)
+        # pre_dict_dones = pre_dict_dones.at[2].set(True)
+        # print(new_state)
+        # print(pre_dict_dones)
 
         # add infos
-        info = {"agent_done_causation": {agent: env_state.done_causation[agent] for agent in self.agents}}
+        pre_dict_done_causation = jax.vmap(self._done_causation)(new_state, pre_dict_dones)
+        done_causation_dict = {agent: pre_dict_done_causation[self.agent_ids[agent]] for agent in self.agents}
+        env_state = env_state.replace(done_causation=done_causation_dict)
+        info = {"agent_done_causation": {agent: jnp.full((self.num_agents,), pre_dict_done_causation[self.agent_ids[agent]]) for agent in self.agents}}
         state = state.replace(env_state=env_state)
 
         return (jax.lax.stop_gradient(obs),
                 jax.lax.stop_gradient(state),
                 rewards,
                 dones,
+                pre_dict_done_causation,
                 info,
                 jax.lax.stop_gradient(graph_state))
 
@@ -355,12 +371,9 @@ class AYS_Environment(object):
             (adot[:, jnp.newaxis], ydot[:, jnp.newaxis], sdot[:, jnp.newaxis], E_output[:, jnp.newaxis]), axis=1)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _get_rewards(self, ayse):
+    def _get_rewards(self, ayse):  # TODO can we vmap rewards?
         def reward_distance_PB(agent):
-            # print(self._inside_planetary_boundaries(ayse, agent))
-            # print(type(self._inside_planetary_boundaries(ayse, agent)))
-            # sys.exit()
-            return jnp.where(self._inside_planetary_boundaries(ayse, agent),
+            return jnp.where(self._inside_planetary_boundaries_reward(ayse, agent),
                              jnp.linalg.norm(ayse[agent, :3] - self.PB_2),
                              0.0)
 
@@ -435,7 +448,7 @@ class AYS_Environment(object):
                           [0.0, np.infty], x_mid * y / (1 - y))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _inside_planetary_boundaries(self, ayse, agent_index):  # TODO can we subsume all into the individual somehow
+    def _inside_planetary_boundaries_reward(self, ayse, agent_index):  # TODO update this
         result = jax.lax.select(jnp.logical_and(ayse.at[agent_index, 0].get() < self.A_PB,
                                                 ayse.at[agent_index, 1].get() > self.Y_PB,
                                                 ).squeeze(), True, False)
@@ -443,87 +456,54 @@ class AYS_Environment(object):
         return result
 
     @partial(jax.jit, static_argnums=(0,))
-    def _terminal_state(self, ayse, step):  # TODO confirm this works
-        # True should flow through no matter what
-        result = jax.lax.select(jnp.logical_or(step >= self.max_steps,
-                                                jnp.logical_or(jnp.all(ayse.at[:, 0].get() >= self.A_PB),
-                                                                jnp.all(ayse.at[:, 1].get() <= self.Y_PB),
-                                                                ).squeeze()), True, False)
+    def _inside_planetary_boundaries(self, ayse):
+        return jax.lax.select(jnp.logical_and(ayse[0] < self.A_PB,
+                                              ayse[1] > self.Y_PB).squeeze(), True, False)
 
-        # TODO add in belowAdding also if at a fixed point green or black
-        # for agent in self.agents:
-        #     result = self._arrived_at_final_state(ayse, self.agent_ids[agent], result)  # TODO means if one agent finish then all finish
-        # TODO can turn the above into a scan?
+    @partial(jax.jit, static_argnums=(0,))
+    def _terminal_state(self, ayse, step):  # TODO can make this better than atm? less logical or
+        result = jax.lax.select(jnp.logical_or(jnp.any(jax.vmap(self._arrived_at_final_state)(ayse)),
+                                               jnp.logical_or(step >= self.max_steps,
+                                                              jnp.logical_or(jnp.all(ayse.at[:, 0].get() >= self.A_PB),
+                                                                             # TODO can we use inside planetary boundaries here again?
+                                                                             jnp.all(ayse.at[:, 1].get() <= self.Y_PB),
+                                                                             ))), True, False)
 
         return result
 
     @partial(jax.jit, static_argnums=(0,))
-    def _arrived_at_final_state(self, ayse, agent_index):  # TODO confirm this works
-        result = jax.lax.select(jnp.logical_or(jnp.all(jnp.abs(ayse - self.green_fp)[agent_index, :] < self.final_radius),
-                                               jnp.all(jnp.abs(ayse - self.black_fp)[agent_index, :].all() < self.final_radius)).squeeze(),
-                               True, False)
-
-        return result
-
-        # if jnp.all(jnp.abs(ayse - self.green_fp)[agent_index, :] < self.final_radius):
-        #     return True
-        # elif jnp.all(jnp.abs(ayse - self.black_fp)[agent_index, :] < self.final_radius):
-        #     return True
-        # else:
-        #     return False
+    def _arrived_at_final_state(self, ayse):  # ignore e
+        return jax.lax.select(jnp.logical_or(self._green_fixed_point(ayse),
+                                             self._black_fixed_point(ayse)),
+                              True, False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _green_fixed_point(self, ayse, agent_index):  # TODO can we add this to the above to save code space
-        return jax.lax.select(jnp.all(jnp.abs(ayse - self.green_fp)[agent_index, :] < self.final_radius),
+    def _green_fixed_point(self, ayse):  # ignore e
+        return jax.lax.select(jnp.all(jnp.abs(ayse - self.green_fp)[:3] < self.final_radius),
                               True,
-                              False)  # TODO confirm this works
+                              False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _black_fixed_point(self, ayse, agent_index):  # TODO can we add this to the above to save code space
-        return jax.lax.select(jnp.all(jnp.abs(ayse - self.black_fp)[agent_index, :] < self.final_radius),
+    def _black_fixed_point(self, ayse):  # ignore e
+        return jax.lax.select(jnp.all(jnp.abs(ayse - self.black_fp)[:3] < self.final_radius),
                               True,
-                              False)  # TODO confirm this works
+                              False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _which_final_state(self, ayse, agent_index):  # TODO same here can we add the green fixed point tINGG
-        return jnp.select([self._green_fixed_point(ayse, agent_index), self._black_fixed_point(ayse, agent_index)],
-                          [1, 2], self._which_PB(ayse, agent_index))
-
-        # if self._green_fixed_point(ayse, agent_index):
-        #     return 1
-        # elif self._black_fixed_point(ayse, agent_index):
-        #     return 2
-        # else:
-        #     return self._which_PB(ayse, agent_index)
+    def _which_final_state(self, ayse):
+        return jnp.select([self._green_fixed_point(ayse), self._black_fixed_point(ayse)],
+                          [1, 2], self._which_PB(ayse))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _which_PB(self, ayse, agent_index):
-        return jnp.select([ayse[agent_index, 0] >= self.A_PB,
-                           ayse[agent_index, 1] <= self.Y_PB,
-                           ayse[agent_index, 2] <= self.S_LIMIT],
+    def _which_PB(self, ayse):  # TODO check this
+        return jnp.select([ayse[0] >= self.A_PB,
+                           ayse[1] <= self.Y_PB,
+                           ayse[2] <= self.S_LIMIT],
                           [3, 4, 5], 7)
 
-        # if ayse[agent_index, 0] >= self.A_PB:
-        #     return 3
-        # elif ayse[agent_index, 1] <= self.Y_PB:
-        #     return 4
-        # elif ayse[agent_index, 2] <= self.S_LIMIT:  # TODO check this ting
-        #     return 5
-        # # elif ayse[agent_index, 3] >= self.E_LIMIT:  # TODO do we need an e limit idk?
-        # #     return 6
-        # else:
-        #     return 7
-
     @partial(jax.jit, static_argnums=(0,))
-    def _done_causation(self,
-                        state: EnvState):  # TODO check this works - it says black fixed point but this not always true, cus of the or function
+    def _done_causation(self, ayse, dones):
         """
-        Parameters
-        ----------
-        state
-
-        Returns
-        -------
         0 = None
         1 = Green Fixed Point
         2 = Black Fixed Point
@@ -532,22 +512,17 @@ class AYS_Environment(object):
         5 = S_LIMIT
         6 = E_LIMIT
         7 = Out_Of_Time
-
         """
-        for agent in self.agents:
-            state.done_causation[agent] = jnp.where(state.dones[agent],
-                                                    # TODO there probs a better way to write this than another for loop
-                                                    self._which_final_state(state.ayse, self.agent_ids[agent]),
-                                                    0).squeeze()
 
-        return state
+        return jnp.where(dones, self._which_final_state(ayse), 0)
 
     @partial(jax.jit, static_argnums=(0,))
     def render(self, graph_states: chex.Array):
         fig, ax3d = create_figure_ays(top_down=False)  # TODO sort the self stuff first
         colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
         # print(graph_states)
-        graph_states = graph_states[~(jnp.all(graph_states == 0.0, axis=(1, 2)))]  # TODO add something to cut out the bad bits from graphing
+        graph_states = graph_states[
+            ~(jnp.all(graph_states == 0.0, axis=(1, 2)))]  # TODO add something to cut out the bad bits from graphing
         for agent in self.agents:
             ax3d.plot3D(xs=graph_states[:, self.agent_ids[agent], 3],
                         ys=graph_states[:, self.agent_ids[agent], 1],

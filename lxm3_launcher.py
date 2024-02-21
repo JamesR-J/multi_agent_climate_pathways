@@ -96,7 +96,7 @@ def main(_):
         # Without the batch context, jobs will be submitted individually.
         seed_list = [42, 15, 98, 44, 22, 68]
         args = [{"seed": seed} for seed in seed_list]
-        batch_name = "test_ppo 2"
+        batch_name = "test_ppo "
         env_vars = [{"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
                      "WANDB_API_KEY": wandb_api_key,
                      "WANDB_PROJECT": "climate_pathways",

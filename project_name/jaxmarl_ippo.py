@@ -18,6 +18,7 @@ from .envs.AYS_JAX import AYS_Environment
 import sys
 
 
+
 class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     activation: str = "tanh"
@@ -81,7 +82,7 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     return {a: x[i] for i, a in enumerate(agent_list)}
 
 
-def make_train(config):
+def make_train(config, orbax_checkpointer):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"], num_agents=config["NUM_AGENTS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
@@ -137,6 +138,7 @@ def make_train(config):
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
                 env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
+                env_act = {k: v.squeeze() for k, v in env_act.items()}
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
@@ -154,8 +156,6 @@ def make_train(config):
                     obs_batch,
                     info,
                 )
-
-                # env.render(env_graph_state[0])  # TODO is this the best way to do it? renders just the first env
 
                 runner_state = (train_state, env_state, obsv, env_graph_state, rng)
                 return runner_state, transition
@@ -262,13 +262,9 @@ def make_train(config):
                 ), "batch size must be equal to number of steps * number of actors"
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
-                # print(batch)
-                # print(batch_size)
-                # print(batch[0])
-                # sys.exit()
-                # batch = jax.tree_util.tree_map(
-                #     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
-                # )
+                batch = jax.tree_util.tree_map(
+                    lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
+                )
                 shuffled_batch = jax.tree_util.tree_map(
                     lambda x: jnp.take(x, permutation, axis=0), batch
                 )
@@ -292,28 +288,18 @@ def make_train(config):
             metric = traj_batch.info
             rng = update_state[-1]
 
-            def callback(metric):
+            def callback(metric, env_state):
                 wandb.log({
                         # the metrics have an agent dimension, but this is identical
                         # for all agents so index into the 0th item of that dimension.
-                        "returns": metric["returned_episode_returns"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "win_rate": metric["returned_won_episode"][:, :, 0][
-                            metric["returned_episode"][:, :, 0]
-                        ].mean(),
-                        "env_step": metric["update_steps"]
-                        * config["NUM_ENVS"]
-                        * config["NUM_STEPS"],
+                        "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
+                        "win_rate": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
+                        "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"],
                     }
                 )
 
-            # loss_info = jax.tree_map(lambda x: x.mean(), loss_info)
-            # metric = jax.tree_map(lambda x: x.mean(), metric)
-            # metric = {**metric, **loss_info}
-
             metric["update_steps"] = update_steps
-            jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric, env_state)
             update_steps = update_steps + 1
             runner_state = (train_state, env_state, last_obs, graph_state, rng)
             return (runner_state, update_steps), metric
@@ -321,8 +307,8 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         runner_state = (train_state, env_state, obsv, graph_state, _rng)
         runner_state, metric = jax.lax.scan(
-            _update_step, (runner_state, 0), None, config["NUM_UPDATES"]
-        )
+            _update_step, (runner_state, 0), None, config["NUM_UPDATES"])
+
         return {"runner_state": runner_state, "metrics": metric}
 
     return train

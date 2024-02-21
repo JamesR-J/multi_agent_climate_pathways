@@ -3,28 +3,29 @@ import sys
 from .envs.AYS_JAX import AYS_Environment, example
 import jax
 import jax.random as jrandom
-from .jaxmarl_ippo import make_train
 import yaml
 import wandb
+import orbax
+import orbax.checkpoint
+from .jaxmarl_ippo import make_train
+from .eval_episodes import make_eval
+from . import environment_loop
 
-_ANIMATION = flags.DEFINE_boolean("animation", False, "save gif of training or not")
-_TOP_DOWN = flags.DEFINE_boolean("top_down", False, "top down view or not")
+
 _WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
 # _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
 
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
-# _RL_ALGO = flags.DEFINE_string("rl_algo", "PPO", "which rl algorithm to use")
-# _RL_ALGO = flags.DEFINE_string("rl_algo", "D3QN", "which rl algorithm to use")
-# parser.add_argument('--algorithm', default="DQN")
-# parser.add_argument('--algorithm', default="MADDPG")
+_RUN_EVAL = flags.DEFINE_boolean("run_eval", False, "run evaluation steps or not")
+# _RUN_EVAL = flags.DEFINE_boolean("run_eval", True, "run evaluation steps or not")
 
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether to be homogeneous or not")
 _CHKPT_LOAD = flags.DEFINE_boolean("chkpt_load", False, "whether to load from checkpoint")
 # parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
 
-_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB", "PB"], "what reward function to use")
+_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB"], "what reward function to use")
 # parser.add_argument('--reward_type', default=["PB"])
 # parser.add_argument('--reward_type', default=["IPB"])
 # parser.add_argument('--reward_type', default=["max_A"])
@@ -39,7 +40,7 @@ _OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation typ
 # parser.add_argument('--observation_type', default="all_shared")
 
 _TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 3, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
@@ -64,11 +65,12 @@ def main(_):
     # env = AYS_Environment()
     # with jax.disable_jit():
     #     example()
+
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
     config["NUM_AGENTS"] = _NUM_AGENTS.value
-    config["REWARD_TYPE"] = _REWARD_TYPE.value
+    config["REWARD_TYPE"] = _REWARD_TYPE.value * _NUM_AGENTS.value
 
     if _WANDB.value:
         wandb_mode = "online"
@@ -79,10 +81,40 @@ def main(_):
                config=config,
                mode=wandb_mode)
 
+    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+
     rng = jax.random.PRNGKey(config["SEED"])
-    train_jit = jax.jit(make_train(config), device=jax.devices()[0])
+    train_jit = jax.jit(make_train(config, orbax_checkpointer), device=jax.devices()[0])
     with jax.disable_jit(disable=_DISABLE_JIT.value):
-        out = train_jit(rng)
+        out = environment_loop.run(config)
+        # out = train_jit(rng)
+
+    if _RUN_EVAL.value:
+        # CHECKPOINTING
+        # Some arbitrary nested pytree with a dictionary and a NumPy array.
+        # config_chkpt = {'dimensions': np.array([5, 3])}  # TODO understand this
+        ckpt = {'model': out["runner_state"][0][0]}
+        # save_args = orbax_utils.save_args_from_target(ckpt)
+        # orbax_checkpointer.save('./project_name/orbax_saves/single_save', ckpt)#, save_args=save_args)
+        orbax_checkpointer.save('/tmp/flax_ckpt/orbax/single_save', ckpt)
+
+        rng = jax.random.PRNGKey(config["SEED"])
+        train_jit = jax.jit(make_eval(config, orbax_checkpointer), device=jax.devices()[0])
+        with jax.disable_jit(disable=True):
+            out = train_jit(rng)
+
+    # from .jaxmarl_iql import make_train
+    # with open("project_name/iql.yaml", "r") as file:
+    #     config = yaml.safe_load(file)
+    # config["SEED"] = _SEED.value
+    # config["NUM_AGENTS"] = _NUM_AGENTS.value
+    # config["REWARD_TYPE"] = _REWARD_TYPE.value * _NUM_AGENTS.value
+    #
+    # rng = jax.random.PRNGKey(config["SEED"])
+    # rngs = jax.random.split(rng, config["NUM_SEEDS"])
+    # train_vjit = jax.jit(jax.vmap(make_train(config)))
+    # with jax.disable_jit(disable=_DISABLE_JIT.value):
+    #     outs = jax.block_until_ready(train_vjit(rngs))
 
 
 if __name__ == '__main__':
