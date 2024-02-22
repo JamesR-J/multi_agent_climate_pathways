@@ -30,8 +30,11 @@ requires-python = "==3.10.*"
 readme = "README.md"
 license = {text = "MIT"}
 
- [tool.pdm]
- distribution = false
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+# Uncomment this if use use JAX
  [[tool.pdm.source]]
  name = "jax_cuda"
  url = "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"

@@ -1,8 +1,6 @@
 
 IMAGE_TAG ?= cuda
 IMAGE_NAME ?= multi_agent_climate_pathways
-# API_KEY_FILE := api_key.txt
-# WANDB_API_KEY := $(shell cat $(API_KEY_FILE))
 
 .PHONY: build-docker
 build-docker:

@@ -21,7 +21,7 @@ class PPO_RNNAgent:
                   jnp.zeros((1, config["NUM_ENVS"])),
                   # jnp.zeros((1, config["NUM_ENVS"], env.action_space[env.agents[0]].n)),
                   )
-        self.key, _key = jrandom.split(key)
+        key, _key = jrandom.split(key)
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
         self.network_params = self.network.init(_key, init_hstate, init_x)
         self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"],
@@ -48,7 +48,7 @@ class PPO_RNNAgent:
                                   params=self.network_params,
                                   tx=self.tx),
                 self.init_hstate,
-                self.key)
+                )
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
@@ -57,7 +57,7 @@ class PPO_RNNAgent:
         action = pi.sample(seed=_key)
         log_prob = pi.log_prob(action)
 
-        return train_state, hstate, action, log_prob, value, key
+        return hstate, action, log_prob, value, key  # TODO do we need to return key?
 
     @partial(jax.jit, static_argnums=(0))
     def update(self, runner_state, traj_batch):

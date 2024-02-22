@@ -30,53 +30,30 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     return {a: x[i] for i, a in enumerate(agent_list)}
 
 
-def run(config):
+def run_train(config):
     # run a loop of episodes and stuff
     env = AYS_Environment(reward_type=config["REWARD_TYPE"], num_agents=config["NUM_AGENTS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
     config["MINIBATCH_SIZE"] = (config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"])
-    config["CLIP_EPS"] = (config["CLIP_EPS"] / env.num_agents
-                          if config["SCALE_CLIP_EPS"]
-                          else config["CLIP_EPS"]
-                          )
+    config["CLIP_EPS"] = (config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"])
 
     # initialise agents from the config file deciding what the algorithms are
     key = jrandom.PRNGKey(config["SEED"])
-    agent_list = []
+    agent_list = {agent: None for agent in env.agents}  # TODO is there a better way to do this?
+    agent_types = {agent: config["AGENT_TYPE"][env.agent_ids[agent]] for agent in env.agents}
     hstate = jnp.zeros((env.num_agents, config['NUM_ENVS'], config["GRU_HIDDEN_DIM"]))
-    train_state_list = []  # TODO should this be a list or a pytree who knows?
-    for agent_index, agent_type in enumerate(config["AGENT_TYPE"]):
-        agent_list.append(import_class_from_folder(agent_type)(env=env, key=key, config=config))  # TODO is this general enough
-        train_state, init_hstate, key = agent_list[agent_index].create_train_state()
-        hstate = hstate.at[agent_index, :].set(init_hstate)
-        train_state_list.append(train_state)
+    train_state_list = {agent: None for agent in env.agents}
+    for agent in env.agents:
+        agent_list[agent] = (import_class_from_folder(agent_types[agent])(env=env, key=key, config=config))
+        train_state, init_hstate = agent_list[agent].create_train_state()
+        hstate = hstate.at[env.agent_ids[agent], :].set(init_hstate)
+        train_state_list[agent] = train_state
         # TODO this is dodgy list train_state way, but can we make a custom sub class, is that faster?
 
-    # def _create_agents(carry):
-    #     agent_list, train_state_list, hstate, key = carry
-    #     # input agent type from config
-    #     # output agent_list_somehow, train_state, hstate, and key
-    #     agent = (import_class_from_folder(agent_type)(env=env, key=key, config=config))
-    #     train_state, hstate, key = agent.create_train_state()
-    #
-    #     return carry
-    #
-    # key = jrandom.PRNGKey(config["SEED"])
-    # agent_creation_state = (jnp.zeros(env.num_agents), jnp.zeros(env.num_agents), jnp.zeros((env.num_agents, config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])), key)
-    # agent_creation_state = jax.lax.scan(_create_agents, agent_creation_state, None, env.num_agents)
-    # agent_list, train_state_list, hstate, key = agent_creation_state
-    #
-    # print(train_state_list)
-    # print(hstate.shape)
-    # sys.exit()
-
-
     reset_key = jrandom.split(key, config["NUM_ENVS"])
-    # obs shape (no of agents + 1 x num envs)
-    # env_state (so many dims but scales by num_envs)
     obs, env_state, graph_state = jax.vmap(env.reset, in_axes=(0,))(reset_key)
-    """ train_state, env_state, obs, dones, hstate, key """  # TODO the runner_state setup, is it okay?
+    """ train_state, env_state, obs, dones, hstate, key """  # TODO the runner_state setup
     runner_state = (train_state_list, env_state, obs, jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool), hstate, graph_state, key)
 
     def _run_update(update_runner_state, unused):
@@ -87,23 +64,41 @@ def run(config):
             train_state_list, env_state, last_obs, last_done, hstate, env_graph_state, key = runner_state
 
             # act on this initial env_state
-            # avail_actions = jax.vmap(env.get_avail_actions)(env_state.env_state)
-            # avail_actions = jax.lax.stop_gradient(batchify(avail_actions, env.agents))
             obs_batch = batchify(last_obs, env.agents)
             action_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=int)
             value_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]))
             log_prob_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]))
-            for agent_index, agent in enumerate(agent_list):
-                ac_in = (obs_batch[jnp.newaxis, agent_index, :],
-                         last_done[jnp.newaxis, agent_index],
-                         # avail_actions[jnp.newaxis, agent_index, :]
+
+            # def _agent_act(agent_id, hstate, obs_batch, last_done, key):
+            #     ac_in = (obs_batch[jnp.newaxis, :],
+            #              last_done[jnp.newaxis],
+            #              )
+            #     # print(agent_list[env.agents[agent_id]])
+            #     # print(agent_id)
+            #     # # print(train_state_list)
+            #     # sys.exit()
+            #     hstate, action, log_prob, value = agent_list[env.agents[agent_id]].act(train_state_list[env.agents[agent_id]], hstate, ac_in, key)
+            #     return hstate, action, log_prob, value
+            #
+            # reset_key = jrandom.split(key, env.num_agents)
+            # # print(agent_list)
+            # # print(batchify(train_state_list, env.agents))
+            # # print(hstate)
+            # # print(obs_batch)
+            # # print(last_done)
+            # # print(reset_key)
+            # hstate, action_n, log_prob_n, value_n, key = jax.vmap(_agent_act)(batchify(env.agent_ids, env.agents)[:, jnp.newaxis], hstate, obs_batch, last_done, reset_key)
+            # sys.exit()
+
+            for agent in env.agents:
+                ac_in = (obs_batch[jnp.newaxis, env.agent_ids[agent], :],
+                         last_done[jnp.newaxis, env.agent_ids[agent]],
                          )
-                ind_train_state, ind_hstate, ind_action, ind_log_prob, ind_value, key = agent_list[agent_index].act(train_state_list[agent_index], hstate[agent_index, :], ac_in, key)
-                action_n = action_n.at[agent_index].set(ind_action[0])
-                value_n = value_n.at[agent_index].set(ind_value[0])
-                log_prob_n = log_prob_n.at[agent_index].set(ind_log_prob[0])
-                hstate = hstate.at[agent_index, :].set(ind_hstate[0])
-                train_state_list[agent_index] = ind_train_state  # TODO is this a necessary output idk?
+                ind_hstate, ind_action, ind_log_prob, ind_value, key = agent_list[agent].act(train_state_list[agent], hstate[env.agent_ids[agent], :], ac_in, key)
+                action_n = action_n.at[env.agent_ids[agent]].set(ind_action[0])
+                value_n = value_n.at[env.agent_ids[agent]].set(ind_value[0])
+                log_prob_n = log_prob_n.at[env.agent_ids[agent]].set(ind_log_prob[0])
+                hstate = hstate.at[env.agent_ids[agent], :].set(ind_hstate[0])
             env_act = unbatchify(action_n, env.agents, config["NUM_ENVS"], env.num_agents)
             env_act = {k: v.squeeze() for k, v in env_act.items()}
 
@@ -116,7 +111,7 @@ def run(config):
             # swaps agent id axis and envs so that agent id comes first
             info = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), info)
             done_batch = batchify(done, env.agents)
-            transition = Transition(jnp.tile(done["__all__"], env.num_agents).reshape(env.num_agents, config["NUM_ENVS"]),
+            transition = Transition(jnp.full((env.num_agents, config["NUM_ENVS"]), done["__all__"]),
                                     done_batch,
                                     action_n,
                                     value_n,
@@ -124,9 +119,7 @@ def run(config):
                                     log_prob_n,
                                     obs_batch,
                                     info,
-                                    # avail_actions,
                                     )
-            # TODO check the transition data is not messed up in where it goes and the shape etc
 
             runner_state = (train_state_list, env_state, obs, done_batch, hstate, env_graph_state, key)
 
@@ -137,13 +130,13 @@ def run(config):
 
         # update agents here after rollout
         train_state_list, env_state, last_obs, last_done, hstate, graph_state, key = runner_state
-        for agent_index, agent_type in enumerate(agent_list):  # TODO this is probs mega slowsies
+        for agent in env.agents:  # TODO this is probs mega slowsies
             last_obs_batch = batchify(last_obs, env.agents)
-            individual_trajectory_batch = jax.tree_map(lambda x: x[:, agent_index], trajectory_batch)
-            individual_train_state = (train_state_list[agent_index], env_state, last_obs_batch[agent_index, :], last_done[agent_index], hstate[agent_index, :], key)
-            individual_runner_list = agent_list[agent_index].update(individual_train_state, individual_trajectory_batch)
-            train_state_list[agent_index] = individual_runner_list[0]  # TODO dodge should update not end of episode but periodically
-            hstate = hstate.at[agent_index, :].set(individual_runner_list[4])
+            individual_trajectory_batch = jax.tree_map(lambda x: x[:, env.agent_ids[agent]], trajectory_batch)
+            individual_train_state = (train_state_list[agent], env_state, last_obs_batch[env.agent_ids[agent], :], last_done[env.agent_ids[agent]], hstate[env.agent_ids[agent], :], key)
+            individual_runner_list = agent_list[agent].update(individual_train_state, individual_trajectory_batch)
+            train_state_list[agent] = individual_runner_list[0]
+            hstate = hstate.at[env.agent_ids[agent], :].set(individual_runner_list[4])
             key = individual_runner_list[-1]  # TODO make this name rather than number index would probs be good inni
         runner_state = (train_state_list, env_state, last_obs, last_done, hstate, graph_state, key)  # TODO is this unneccsary, can I maybe just call in place?
 
@@ -169,4 +162,9 @@ def run(config):
     runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])
 
     return {"runner_state": runner_state, "metrics": metric}
+
+
+def run_eval(config):
+    pass
+
 

@@ -13,7 +13,7 @@ with open("wandb_api_key.txt", "r") as file:
 _LAUNCH_ON_CLUSTER = flags.DEFINE_boolean(
     "launch_on_cluster", False, "Launch on cluster"
 )
-_USE_GPU = flags.DEFINE_boolean("use_gpu", True, "If set, use GPU")
+# _USE_GPU = flags.DEFINE_boolean("use_gpu", True, "If set, use GPU")
 _SINGULARITY_CONTAINER = flags.DEFINE_string(
     "container", None, "Path to singularity container"
 )
@@ -23,17 +23,17 @@ flags.mark_flags_as_required(["entrypoint"])
 
 def main(_):
     with xm_cluster.create_experiment(experiment_title="basic") as experiment:
-        if _USE_GPU.value:
-            job_requirements = xm_cluster.JobRequirements(gpu=1, ram=8 * xm.GB)
-        else:
-            job_requirements = xm_cluster.JobRequirements(ram=8 * xm.GB)
+        # if _USE_GPU.value:
+        job_requirements = xm_cluster.JobRequirements(gpu=1, ram=8 * xm.GB)
+        # else:
+        #     job_requirements = xm_cluster.JobRequirements(ram=8 * xm.GB)
         if _LAUNCH_ON_CLUSTER.value:
             # This is a special case for using SGE in UCL where we use generic
             # job requirements and translate to SGE specific requirements.
             # Non-UCL users, use `xm_cluster.GridEngine directly`.
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=60 * 48 * xm.Min,
+                walltime=48 * xm.Hr,
                 extra_directives=["-l gpu_type=gtx1080ti"]  # TODO allows specifying GPU type on a cluster
             )
         else:
@@ -96,12 +96,12 @@ def main(_):
         # Without the batch context, jobs will be submitted individually.
         seed_list = [42, 15, 98, 44, 22, 68]
         args = [{"seed": seed} for seed in seed_list]
-        batch_name = "test_ppo "
+        batch_name = "4_agents"
         env_vars = [{"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
                      "WANDB_API_KEY": wandb_api_key,
-                     "WANDB_PROJECT": "climate_pathways",
+                     "WANDB_PROJECT": "multi_agent_climate_pathways",
                      "WANDB_RUN_GROUP": batch_name,
-                     "WANDB_NAME": f"{batch_name} - seed={seed}",
+                     "WANDB_NAME": f"{seed}",
                      "TASK": f"foo_{seed}"} for seed in seed_list]
         experiment.add(
             xm_cluster.ArrayJob(

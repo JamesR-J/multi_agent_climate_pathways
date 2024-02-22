@@ -40,7 +40,7 @@ _OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation typ
 # parser.add_argument('--observation_type', default="all_shared")
 
 _TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 3, "number of agents")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
@@ -84,9 +84,9 @@ def main(_):
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
 
     rng = jax.random.PRNGKey(config["SEED"])
-    train_jit = jax.jit(make_train(config, orbax_checkpointer), device=jax.devices()[0])
+    # train_jit = jax.jit(make_train(config, orbax_checkpointer), device=jax.devices()[0])
     with jax.disable_jit(disable=_DISABLE_JIT.value):
-        out = environment_loop.run(config)
+        out = environment_loop.run_train(config)
         # out = train_jit(rng)
 
     if _RUN_EVAL.value:
