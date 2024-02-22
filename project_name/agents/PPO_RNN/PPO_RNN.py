@@ -40,9 +40,6 @@ class PPO_RNNAgent:
                                   optax.adam(config["LR"], eps=1e-5),
                                   )
 
-    def initialise(self):  # TODO is there a way to avoid this step
-        return self.network_params, self.init_hstate, self.tx
-
     def create_train_state(self):
         return (TrainState.create(apply_fn=self.network.apply,
                                   params=self.network_params,
@@ -52,6 +49,9 @@ class PPO_RNNAgent:
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
+        print(hstate)
+        print(ac_in)
+        print("ACT")
         hstate, pi, value = self.network.apply(train_state.params, hstate, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
@@ -68,6 +68,9 @@ class PPO_RNNAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
+        print(hstate)
+        print(ac_in)
+        print("UPDATE")
         _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)
         last_val = last_val.squeeze()
 
@@ -175,6 +178,4 @@ class PPO_RNNAgent:
         update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, self.config["UPDATE_EPOCHS"])
         train_state, hstate, traj_batch, advantages, targets, key = update_state
 
-        runner_state = train_state, env_state, last_obs, last_done, hstate, key
-
-        return runner_state
+        return train_state, env_state, last_obs, last_done, hstate, key
