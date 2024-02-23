@@ -49,9 +49,6 @@ class PPO_RNNAgent:
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
-        print(hstate)
-        print(ac_in)
-        print("ACT")
         hstate, pi, value = self.network.apply(train_state.params, hstate, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
@@ -68,11 +65,11 @@ class PPO_RNNAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
-        print(hstate)
-        print(ac_in)
-        print("UPDATE")
         _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)
         last_val = last_val.squeeze()
+        print(last_val)
+        print(last_val.squeeze())
+        sys.exit()
 
         def _calculate_gae(traj_batch, last_val):
             def _get_advantages(gae_and_next_value, transition):
