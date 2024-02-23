@@ -33,7 +33,9 @@ class Agent:
     def update(self, update_state: Any, trajectory_batch: Any):  # TODO add better chex
         train_state, env_state, obs, done_batch, hstate, key = update_state
         update_state = train_state, env_state, obs[self.env.agents[0]], done_batch.squeeze(axis=0), hstate[0], key
-        return self.agent.update(update_state, trajectory_batch)
+        trajectory_batch = jax.tree_map(lambda x: x[:, 0], trajectory_batch)
+        train_state, env_state, last_obs, last_done, hstate, key = self.agent.update(update_state, trajectory_batch)
+        return train_state, env_state, {self.env.agents[0]: last_obs}, last_done[jnp.newaxis, :], hstate[jnp.newaxis], key
 
     # TODO add wrapper for multi agent on top of this single agent
     # TODO add a thing so hstate is fine if don't have one etc

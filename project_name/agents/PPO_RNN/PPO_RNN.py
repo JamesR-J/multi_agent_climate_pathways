@@ -80,9 +80,6 @@ class PPO_RNNAgent:
                 gae = (delta + self.config["GAMMA"] * self.config["GAE_LAMBDA"] * (1 - done) * gae)
                 return (gae, value), gae
 
-            print(traj_batch)
-            sys.exit()
-
             _, advantages = jax.lax.scan(_get_advantages,
                                          (jnp.zeros_like(last_val), last_val),
                                          traj_batch,

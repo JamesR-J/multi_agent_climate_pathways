@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-from .agents.agent_main import Agent
+from project_name.agents.agent_main import Agent
 
 
 class MultiAgentWrapper(Agent):

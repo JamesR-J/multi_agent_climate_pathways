@@ -12,8 +12,8 @@ from .eval_episodes import make_eval
 from . import environment_loop
 
 
-_WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
-# _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
+# _WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
+_WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
 
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")

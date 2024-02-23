@@ -53,12 +53,7 @@ def run_train(config):
 
             # act on this initial env_state
             obs_batch = batchify(last_obs, env.agents)
-            action_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=int)
-            value_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]))
-            log_prob_n = jnp.zeros((env.num_agents, config["NUM_ENVS"]))
-
-
-            hstate, action, log_prob, value, key = actor.act(train_state, hstate, obs_batch, last_done, key)
+            hstate, action_n, log_prob_n, value_n, key = actor.act(train_state, hstate, obs_batch, last_done, key)
             env_act = unbatchify(action_n, env.agents, config["NUM_ENVS"], env.num_agents)
             env_act = {k: v.squeeze() for k, v in env_act.items()}
 
