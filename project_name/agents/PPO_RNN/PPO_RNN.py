@@ -67,9 +67,6 @@ class PPO_RNNAgent:
                  )
         _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)
         last_val = last_val.squeeze()
-        print(last_val)
-        print(last_val.squeeze())
-        sys.exit()
 
         def _calculate_gae(traj_batch, last_val):
             def _get_advantages(gae_and_next_value, transition):
@@ -82,6 +79,9 @@ class PPO_RNNAgent:
                 delta = reward + self.config["GAMMA"] * next_value * (1 - done) - value
                 gae = (delta + self.config["GAMMA"] * self.config["GAE_LAMBDA"] * (1 - done) * gae)
                 return (gae, value), gae
+
+            print(traj_batch)
+            sys.exit()
 
             _, advantages = jax.lax.scan(_get_advantages,
                                          (jnp.zeros_like(last_val), last_val),
