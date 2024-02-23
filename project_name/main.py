@@ -40,7 +40,7 @@ _OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation typ
 # parser.add_argument('--observation_type', default="all_shared")
 
 _TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 3, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
