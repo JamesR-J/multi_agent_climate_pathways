@@ -2,43 +2,50 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from project_name.agents.agent_main import Agent
+import sys
+from ..utils import import_class_from_folder, batchify
+from functools import partial
+from typing import Any
 
 
-class MultiAgentWrapper(Agent):
-    def __init__(self):
-        agent_list = {agent: None for agent in env.agents}  # TODO is there a better way to do this?
-        agent_types = {agent: config["AGENT_TYPE"][env.agent_ids[agent]] for agent in env.agents}
-        hstate = jnp.zeros((env.num_agents, config['NUM_ENVS'], config["GRU_HIDDEN_DIM"]))
-        train_state_list = {agent: None for agent in env.agents}
+class MultiAgent(Agent):
+    def __init__(self, env, config, key):
+        super().__init__(env, config, key)
+        self.agent_list = {agent: None for agent in env.agents}  # TODO is there a better way to do this?
+        self.hstate = jnp.zeros((env.num_agents, config['NUM_ENVS'], config["GRU_HIDDEN_DIM"]))
+        self.train_state_list = {agent: None for agent in env.agents}
         for agent in env.agents:
-            agent_list[agent] = (import_class_from_folder(agent_types[agent])(env=env, key=key, config=config))
-            train_state, init_hstate = agent_list[agent].create_train_state()
-            hstate = hstate.at[env.agent_ids[agent], :].set(init_hstate)
-            train_state_list[agent] = train_state
+            self.agent_list[agent] = (
+                import_class_from_folder(self.agent_types[agent])(env=env, key=key, config=config))
+            train_state, init_hstate = self.agent_list[agent].create_train_state()
+            self.hstate = self.hstate.at[env.agent_ids[agent], :].set(init_hstate)
+            self.train_state_list[agent] = train_state
             # TODO this is dodgy list train_state way, but can we make a custom sub class, is that faster?
 
+    @partial(jax.jit, static_argnums=(0,))
+    def initialise(self):
+        return self.train_state_list, self.hstate
 
-        pass
-
-    def act(self):
-        pass
-
-    def update(self):
-        pass
-
-        # marl stuff
-        for agent in env.agents:
-            ac_in = (obs_batch[jnp.newaxis, env.agent_ids[agent], :],
-                     last_done[jnp.newaxis, env.agent_ids[agent]],
+    @partial(jax.jit, static_argnums=(0,))
+    def act(self, train_state: Any, hstate: Any, obs_batch: Any, last_done: Any, key: Any):  # TODO add better chex
+        action_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]), dtype=int)
+        value_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
+        log_prob_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
+        for agent in self.env.agents:
+            ac_in = (obs_batch[jnp.newaxis, self.env.agent_ids[agent], :],
+                     last_done[jnp.newaxis, self.env.agent_ids[agent]],
                      )
-            ind_hstate, ind_action, ind_log_prob, ind_value, key = agent_list[agent].act(train_state_list[agent],
-                                                                                         hstate[env.agent_ids[agent],
-                                                                                         :],
-                                                                                         ac_in, key)
-            action_n = action_n.at[env.agent_ids[agent]].set(ind_action[0])
-            value_n = value_n.at[env.agent_ids[agent]].set(ind_value[0])
-            log_prob_n = log_prob_n.at[env.agent_ids[agent]].set(ind_log_prob[0])
-            hstate = hstate.at[env.agent_ids[agent], :].set(ind_hstate[0])
+            ind_hstate, ind_action, ind_log_prob, ind_value, key = self.agent_list[agent].act(train_state[agent],
+                                                                                              hstate[
+                                                                                              self.env.agent_ids[agent],
+                                                                                              :],
+                                                                                              ac_in, key)
+            action_n = action_n.at[self.env.agent_ids[agent]].set(ind_action[0])
+            value_n = value_n.at[self.env.agent_ids[agent]].set(ind_value[0])
+            log_prob_n = log_prob_n.at[self.env.agent_ids[agent]].set(ind_log_prob[0])
+            hstate = hstate.at[self.env.agent_ids[agent], :].set(ind_hstate[0])
+
+        return hstate, action_n, log_prob_n, value_n, key
 
         # def _agent_act(agent_id, hstate, obs_batch, last_done, key):
         #     ac_in = (obs_batch[jnp.newaxis, :],
@@ -61,15 +68,18 @@ class MultiAgentWrapper(Agent):
         # hstate, action_n, log_prob_n, value_n, key = jax.vmap(_agent_act)(batchify(env.agent_ids, env.agents)[:, jnp.newaxis], hstate, obs_batch, last_done, reset_key)
         # sys.exit()
 
-        for agent in env.agents:  # TODO this is probs mega slowsies
-            last_obs_batch = batchify(last_obs, env.agents)
-            individual_trajectory_batch = jax.tree_map(lambda x: x[:, env.agent_ids[agent]], trajectory_batch)
-            individual_train_state = (
-                train_state_list[agent], env_state, last_obs_batch[env.agent_ids[agent], :],
-                last_done[env.agent_ids[agent]],
-                hstate[env.agent_ids[agent], :], key)
-            individual_runner_list = agent_list[agent].update(individual_train_state, individual_trajectory_batch)
-            train_state_list[agent] = individual_runner_list[0]
-            hstate = hstate.at[env.agent_ids[agent], :].set(individual_runner_list[4])
+    @partial(jax.jit, static_argnums=(0,))
+    def update(self, update_state: Any, trajectory_batch: Any):  # TODO add better chex
+        train_state, env_state, last_obs, last_done, hstate, key = update_state
+        last_obs_batch = batchify(last_obs, self.env.agents)
+        for agent in self.env.agents:  # TODO this is probs mega slowsies
+            individual_trajectory_batch = jax.tree_map(lambda x: x[:, self.env.agent_ids[agent]], trajectory_batch)
+            individual_train_state = (train_state[agent], env_state, last_obs_batch[self.env.agent_ids[agent], :],
+                                      last_done[self.env.agent_ids[agent]],
+                                      hstate[self.env.agent_ids[agent], :], key)
+            individual_runner_list = self.agent_list[agent].update(individual_train_state, individual_trajectory_batch)
+            train_state[agent] = individual_runner_list[0]
+            hstate = hstate.at[self.env.agent_ids[agent], :].set(individual_runner_list[4])
             key = individual_runner_list[-1]
-        runner_state = (train_state_list, env_state, last_obs, last_done, hstate, graph_state, key)
+
+        return train_state, env_state, last_obs, last_done, hstate, key

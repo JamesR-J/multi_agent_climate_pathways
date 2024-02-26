@@ -37,7 +37,7 @@ import mpl_toolkits.mplot3d as plt3d
 
 
 @struct.dataclass
-class EnvState:  # TODO fill this env state up as we need it basos
+class EnvState:
     ayse: chex.Array
     prev_actions: chex.Array
     dones: chex.Array
@@ -59,7 +59,7 @@ class InfoState:
 
 class AYS_Environment(object):
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=3):
+                 plot_progress=False, num_agents=3, homogeneous=False):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -67,14 +67,14 @@ class AYS_Environment(object):
         self.max_steps = max_steps
         self.gamma = gamma
 
+        self.homogeneous = homogeneous
+
         self.num_agents = num_agents
         self.agents = [f"agent_{i}" for i in range(num_agents)]
         self.agent_ids = {agent: i for i, agent in enumerate(self.agents)}
-        self.vmap_ids = jnp.arange(self.num_agents).reshape(self.num_agents,
-                                                            1)  # TODO can get this to work better with the above ids?
 
         self.final_state = jnp.tile(jnp.array([False]), self.num_agents)
-        self.reward_type = reward_type  # TODO is there a better way to do this with agent names
+        self.reward_type = reward_type
         print(f"Reward type: {self.reward_type}")
 
         self.timeStart = 0
@@ -93,8 +93,9 @@ class AYS_Environment(object):
                              "ET": 2,
                              "LG+ET": 3}
         self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
-        self.action_space = {i: Discrete(len(self.game_actions)) for i in self.agents}
-        self.observation_space = {i: Box(low=0.0, high=1.0, shape=(5,)) for i in self.agents}  # TODO remove hardcoding
+        self.action_space = {agent: Discrete(len(self.game_actions)) for agent in self.agents}
+        self.observation_space = {agent: Box(low=0.0, high=1.0, shape=(5,)) for agent in
+                                  self.agents}  # TODO remove hardcoding
 
         """
         This values define the planetary boundaries of the AYS model
@@ -118,18 +119,20 @@ class AYS_Environment(object):
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key: chex.PRNGKey):
         limit = 0.05
+
         # heterogeneous
-        state = jrandom.uniform(key, (self.num_agents, 4), minval=0.5 - limit, maxval=0.5 + limit)
-        state = state.at[:, 2].set(0.5)
-        state = state.at[:, 0].set(state[0, 0])
+        hetero_state = jrandom.uniform(key, (self.num_agents, 4), minval=0.5 - limit, maxval=0.5 + limit)
+        hetero_state = hetero_state.at[:, 2].set(0.5)
+        hetero_state = hetero_state.at[:, 0].set(hetero_state[0, 0])
 
         # homogeneous
-        # state = jrandom.uniform(key, (1, 3), minval=0.5 - limit, maxval=0.5 + limit)
-        # state = state.at[0, 2].set(0.5)
-        # state = jnp.tile(state, self.num_agents).reshape((self.num_agents, 3))
+        homo_state = jrandom.uniform(key, (1, 4), minval=0.5 - limit, maxval=0.5 + limit)
+        homo_state = homo_state.at[0, 2].set(0.5)
+        homo_state = jnp.full((self.num_agents, 4), homo_state)
 
-        state = state.at[:, 3].set(0)  # TODO setting emissions to zero at first step, need to add calc here in future
+        state = jax.lax.select(self.homogeneous, homo_state, hetero_state)
 
+        state = state.at[:, 3].set(0)  # sets emissions to zero as ode solver finds delta rather than value
         actions = jnp.array([0 for _ in self.agents])
         traj_one_step = odeint(self._ays_rescaled_rhs_marl, state,
                                jnp.array([0.0, 1.0], dtype=jnp.float32),
@@ -172,7 +175,8 @@ class AYS_Environment(object):
              graph_state: chex.Array
              ) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], Dict]:
         key, key_reset = jax.random.split(key)
-        obs_st, states_st, rewards, dones, done_causations, infos, graph_states_st = self.step_env(key, state, actions, graph_state)
+        obs_st, states_st, rewards, dones, done_causations, infos, graph_states_st = self.step_env(key, state, actions,
+                                                                                                   graph_state)
 
         obs_re, states_re, graph_states_re = self.reset(key_reset)
 
@@ -190,17 +194,8 @@ class AYS_Environment(object):
         new_episode_return = state.episode_returns + _batchify_floats(rewards)
         new_episode_length = state.episode_lengths + 1
 
-        # print(ep_done)
-        # print(done_causations)
-        # done_causations = done_causations.at[0].set(1)
-        # print(done_causations)
         new_won_episode = jnp.any(done_causations == 1).astype(dtype=jnp.float32)
         # TODO win for just one agent reaching the point
-        # print(new_won_episode)
-        # print(new_won_episode * (1 - ep_done))
-        # print(4 * (1 - ep_done) + new_won_episode * ep_done)
-        # print("END OF STEP")
-        # sys.exit()
 
         wrapper_state = InfoState(env_state=states.env_state,
                                   won_episode=new_won_episode * (1 - ep_done),
@@ -225,7 +220,7 @@ class AYS_Environment(object):
         Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], chex.Array, Dict, chex.Array]:
         actions = jnp.array([actions[i] for i in self.agents])
 
-        step = state.env_state.step + 1  # TODO should it be 1 or dt
+        step = state.env_state.step + self.dt
 
         action_matrix = self._get_parameters(actions)  # .squeeze(axis=1)
 
@@ -240,7 +235,7 @@ class AYS_Environment(object):
         # TODO make the above work
         # TODO above works if don't call early stop stuff if you remember
 
-        graph_state = graph_state.at[step, :].set(new_state)  # TODO check the step thing works and is correctly defined
+        graph_state = graph_state.at[step, :].set(new_state)
 
         env_state = state.env_state
         env_state = env_state.replace(ayse=new_state,
@@ -261,26 +256,20 @@ class AYS_Environment(object):
         # reward function innit
         rewards = self._get_rewards(env_state.ayse)
 
+        # print(rewards)
         # for agent in self.agents:  # TODO is this okay idk? do we want expected final reward
-        #     if dones[agent]:
-        #         rewards = rewards.at(self.agent_ids[agent]).set(self._calculate_expected_final_reward(rewards, self.agent_ids[agent], step))
-        # TODO is this step right here or should it use the last step number? also can this be improved if used
-
-        # print(new_state)
-        # new_state = new_state.at[0, :].set(jnp.array([0.6, 0.4, 0, 0]))
-        # new_state = new_state.at[1, :].set(jnp.array([0, 1, 1, 0]))
-        # new_state = new_state.at[2, :].set(jnp.array([0.5, 0.5, 0.5, 0]))
-        # pre_dict_dones = pre_dict_dones.at[0].set(True)
-        # pre_dict_dones = pre_dict_dones.at[1].set(True)
-        # pre_dict_dones = pre_dict_dones.at[2].set(True)
-        # print(new_state)
-        # print(pre_dict_dones)
+        #     new_reward = jax.lax.select(dones[agent], self._calculate_expected_final_reward(rewards, agent, step), 0)
+        #     rewards = rewards.at[self.agent_ids[agent]].add(new_reward)
+        # print(rewards)
+        # sys.exit()
 
         # add infos
         pre_dict_done_causation = jax.vmap(self._done_causation)(new_state, pre_dict_dones)
         done_causation_dict = {agent: pre_dict_done_causation[self.agent_ids[agent]] for agent in self.agents}
         env_state = env_state.replace(done_causation=done_causation_dict)
-        info = {"agent_done_causation": {agent: jnp.full((self.num_agents,), pre_dict_done_causation[self.agent_ids[agent]]) for agent in self.agents}}
+        info = {
+            "agent_done_causation": {agent: jnp.full((self.num_agents,), pre_dict_done_causation[self.agent_ids[agent]])
+                                     for agent in self.agents}}
         state = state.replace(env_state=env_state)
 
         return (jax.lax.stop_gradient(obs),
@@ -354,18 +343,13 @@ class AYS_Environment(object):
         E_matrix = G_matrix / (args[:, 2] * args[:, 1]) * Y_matrix
         E_tot = jnp.sum(E_matrix) / E_matrix.shape[0]  # TODO added divide by agents, need to check is correct response
 
-        adot = (E_tot - (A_matrix / args[:, 5])) * ays_inv_matrix[:, 0] * ays_inv_matrix[:,
-                                                                          0] / A_mid  # TODO check this maths
+        adot = (E_tot - (A_matrix / args[:, 5])) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] / A_mid
         # adot = G_matrix / (args[:, 2] * args[:, 1] * A_mid) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] * Y_matrix - ayse[:, 0] * ays_inv_matrix[:, 0] / args[:, 5]
         ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix)
-        sdot = (1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) - ayse[:,
-                                                                                                                2] * ays_inv_matrix[
-                                                                                                                     :,
-                                                                                                                     2] / args[
-                                                                                                                          :,
-                                                                                                                          6]
+        sdot = ((1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) -
+                ayse[:, 2] * ays_inv_matrix[:, 2] / args[:, 6])
 
-        E_output = E_matrix / (E_matrix + E_mid)  # TODO sort this out as hardcoding is bAD
+        E_output = E_matrix / (E_matrix + E_mid)
 
         return jnp.concatenate(
             (adot[:, jnp.newaxis], ydot[:, jnp.newaxis], sdot[:, jnp.newaxis], E_output[:, jnp.newaxis]), axis=1)
@@ -422,28 +406,38 @@ class AYS_Environment(object):
 
         return {agent: rewards[self.agent_ids[agent]] for agent in self.agents}
 
-    @partial(jax.jit, static_argnums=(0,))
-    def _calculate_expected_final_reward(self, rewards, agent, step):
-        """
-        Get the reward in the last state, expecting from now on always default.
-        This is important since we break up simulation at final state, but we do not want the agent to
-        find trajectories that are close (!) to final state and stay there, since this would
-        result in a higher total reward.
-        """
-        remaining_steps = self.max_steps - step
-        discounted_future_reward = 0.
-        for i in range(remaining_steps):
-            discounted_future_reward += self.gamma ** i * rewards[self.agent_ids[agent]]
+    # @partial(jax.jit, static_argnums=(0,))
+    # def _calculate_expected_final_reward(self, rewards, agent, step):
+    #     """
+    #     Get the reward in the last state, expecting from now on always default.
+    #     This is important since we break up simulation at final state, but we do not want the agent to
+    #     find trajectories that are close (!) to final state and stay there, since this would
+    #     result in a higher total reward.
+    #     """
+    #     remaining_steps = self.max_steps - step
+    #
+    #     def _update_future_reward(runner, unused):
+    #         reward, steppa = runner
+    #         step_reward = jax.lax.select(steppa <= remaining_steps, (jnp.power(self.gamma, steppa) * rewards[agent]), jnp.array(0.0))
+    #         result = runner + step_reward  # TODO issue with comparison types, do we need this?
+    #         steppa = steppa + 1
+    #         return (result, steppa)
+    #
+    #     discounted_future_reward = jax.lax.scan(_update_future_reward, (jnp.array(0.0), 0.0), None, self.max_steps)
+    #     # for i in range(remaining_steps):
+    #     #     discounted_future_reward += self.gamma ** i * rewards[self.agent_ids[agent]]
+    #     print(discounted_future_reward)
+    #     sys.exit()
+    #
+    #     return discounted_future_reward
 
-        return discounted_future_reward
-
     @partial(jax.jit, static_argnums=(0,))
-    def _compactification(self, x, x_mid):  # TODO check this works
+    def _compactification(self, x, x_mid):
         return jnp.select([x == 0, x == np.infty],
                           [0.0, 1.0], x / (x + x_mid))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _inv_compactification(self, y, x_mid):  # TODO check this works
+    def _inv_compactification(self, y, x_mid):
         return jnp.select([y == 0, jnp.allclose(y, 1)],
                           [0.0, np.infty], x_mid * y / (1 - y))
 
@@ -520,19 +514,13 @@ class AYS_Environment(object):
     def render(self, graph_states: chex.Array):
         fig, ax3d = create_figure_ays(top_down=False)  # TODO sort the self stuff first
         colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
-        # print(graph_states)
-        graph_states = graph_states[
-            ~(jnp.all(graph_states == 0.0, axis=(1, 2)))]  # TODO add something to cut out the bad bits from graphing
+        graph_states = graph_states[~(jnp.all(graph_states == 0.0, axis=(1, 2)))]
         for agent in self.agents:
             ax3d.plot3D(xs=graph_states[:, self.agent_ids[agent], 3],
                         ys=graph_states[:, self.agent_ids[agent], 1],
                         zs=graph_states[:, self.agent_ids[agent], 0],
                         color=colors[self.agent_ids[agent]],
                         alpha=0.8, lw=3, label=f"{agent}")
-        # ax3d.set_title([f"{agent} {self.reward_type[self.agent_ids[agent]]} reward : {reward_values[agent][num]:.2f}" for
-        #      agent in self.agents)])
-        # image = Image.frombytes("RGB", fig.canvas.get_width_height(), fig.canvas.tostring_rgb())
-        # return image
 
         plt.savefig(f"project_name/images/{graph_states.shape[0]}.png")
         plt.close()
@@ -827,7 +815,7 @@ def example():
     for step in range(200):
         key, key_reset, key_act, key_step = jax.random.split(key, 4)
 
-        fig = env.render(graph_states)  # TODO is this the best way to do it?
+        fig = env.render(graph_states)
         plt.savefig(f"project_name/images/{step}.png")
         plt.close()
         # print("obs:", obs)

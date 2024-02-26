@@ -1,6 +1,20 @@
 import sys
 import os
 import importlib
+import jax.numpy as jnp
+from typing import NamedTuple
+import chex
+
+
+class Transition(NamedTuple):
+    global_done: jnp.ndarray
+    done: jnp.ndarray
+    action: jnp.ndarray
+    value: jnp.ndarray
+    reward: jnp.ndarray
+    log_prob: jnp.ndarray
+    obs: jnp.ndarray
+    info: jnp.ndarray
 
 
 def import_class_from_folder(folder_name):
@@ -33,3 +47,10 @@ def import_class_from_folder(folder_name):
     else:
         print(f"Error: Folder '{folder_name}' not found in any search paths.")
         return None
+
+def batchify(x: dict, agent_list):
+    return jnp.stack([x[a] for a in agent_list])
+
+
+def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
+    return {a: x[i] for i, a in enumerate(agent_list)}

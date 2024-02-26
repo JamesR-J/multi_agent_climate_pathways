@@ -34,7 +34,7 @@ def main(_):
             executor = ucl.UclGridEngine(
                 job_requirements,
                 walltime=48 * xm.Hr,
-                extra_directives=["-l gpu_type=gtx1080ti"]  # TODO allows specifying GPU type on a cluster
+                # extra_directives=["-l gpu_type=gtx1080ti"]  # TODO allows specifying GPU type on a cluster
             )
         else:
             executor = xm_cluster.Local(job_requirements)
@@ -95,8 +95,8 @@ def main(_):
         # To submit parameter sweep by array jobs, you can use the batch context
         # Without the batch context, jobs will be submitted individually.
         seed_list = [42, 15, 98, 44, 22, 68]
-        args = [{"seed": seed} for seed in seed_list]
-        batch_name = "4_agents"
+        args = [{"seed": seed, "wandb": True, "disable_jit": False} for seed in seed_list]
+        batch_name = "10_agents_PPO (no RNN)"
         env_vars = [{"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
                      "WANDB_API_KEY": wandb_api_key,
                      "WANDB_PROJECT": "multi_agent_climate_pathways",

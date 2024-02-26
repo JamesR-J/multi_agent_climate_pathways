@@ -132,7 +132,7 @@ def make_eval(config, orbax_checkpointer):
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
         obs, env_state, graph_state = jax.vmap(env.reset)(reset_rng)
 
-        def _env_step(runner_state, unused):
+        def _env_step(runner_state):
             train_state, env_state, last_obs, env_graph_state, rng = runner_state
 
             obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])

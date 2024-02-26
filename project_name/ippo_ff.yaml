@@ -1,5 +1,5 @@
 "LR": 2.5e-4
-"NUM_ENVS": 128
+"NUM_ENVS": 128  # TODO make it work with 1 env
 "NUM_STEPS": 256
 "NUM_EVAL_STEPS": 2000
 "TOTAL_TIMESTEPS": 40000000
@@ -12,13 +12,14 @@
 "VF_COEF": 0.5
 "MAX_GRAD_NORM": 0.5
 "ACTIVATION": "tanh"
-"ENV_NAME": "MPE_simple_spread_v3"
-"ENV_KWARGS": {}
 "ANNEAL_LR": True
-"SEED": 30
-"NUM_SEEDS": 10
 "CHKPT_LOAD": False
 
 "GRU_HIDDEN_DIM": 256
 "SCALE_CLIP_EPS": False
-"AGENT_TYPE": ["PPO_RNN"]  # , "PPO_RNN", "PPO_RNN"]
+
+"NUM_AGENTS": 10
+"REWARD_TYPE": ["PB"]
+"AGENT_TYPE": ["PPO"]  # , "PPO_RNN", "PPO_RNN"]
+
+"HOMOGENEOUS": False
