@@ -94,8 +94,7 @@ class AYS_Environment(object):
                              "LG+ET": 3}
         self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
         self.action_space = {agent: Discrete(len(self.game_actions)) for agent in self.agents}
-        self.observation_space = {agent: Box(low=0.0, high=1.0, shape=(5,)) for agent in
-                                  self.agents}  # TODO remove hardcoding
+        self.observation_space = {agent: Box(low=0.0, high=1.0, shape=(4,)) for agent in self.agents}
 
         """
         This values define the planetary boundaries of the AYS model
@@ -164,8 +163,9 @@ class AYS_Environment(object):
     @partial(jax.jit, static_argnums=(0,))
     def _get_obs(self, env_state: EnvState) -> Dict:
         # should do partial and full obs options maybe?
-        full_obs = jnp.concatenate((env_state.ayse, env_state.prev_actions.reshape(-1, 1)), axis=1)
-        return {agent: full_obs[self.agent_ids[agent]] for agent in self.agents}
+        # full_obs = jnp.concatenate((env_state.ayse, env_state.prev_actions.reshape(-1, 1)), axis=1)
+        # return {agent: full_obs[self.agent_ids[agent]] for agent in self.agents}
+        return {agent: env_state.ayse[self.agent_ids[agent]] for agent in self.agents}
 
     @partial(jax.jit, static_argnums=(0,))
     def step(self,

@@ -99,7 +99,7 @@ def run_train(config):
     return {"runner_state": runner_state, "metrics": metric}
 
 
-def run_eval(config, orbax_checkpointer):
+def run_eval(config, orbax_checkpointer, chkpt_save_path):
     # TODO can we reduce reusing code from above, would we make this a class? or have to import things
     # TODO or export config from the above? idk and the env?
     env = AYS_Environment(reward_type=config["REWARD_TYPE"], num_agents=config["NUM_AGENTS"])
@@ -116,7 +116,7 @@ def run_eval(config, orbax_checkpointer):
     train_state, hstate = actor.initialise()
 
     target = {'model': train_state}  # must match the input dict
-    train_state = orbax_checkpointer.restore('/tmp/flax_ckpt/orbax/single_save', item=target)["model"]
+    train_state = orbax_checkpointer.restore(chkpt_save_path, item=target)["model"]
     # TODO need to adjust above if gonna be using multiagent or single agent
 
     reset_key = jrandom.split(key, config["NUM_ENVS"])

@@ -63,7 +63,8 @@ def main(_):
     with jax.disable_jit(disable=_DISABLE_JIT.value):
         out = environment_loop.run_train(config)  # TODO why can't I wrap this in a jax.jit?
         ckpt = {'model': out["runner_state"][0][0]}
-        orbax_checkpointer.save('/tmp/flax_ckpt/orbax/single_save_' + str(config["SEED"]), ckpt)
+        chkpt_save_path = '/tmp/flax_ckpt/orbax/single_save_' + str(config["SEED"])
+        orbax_checkpointer.save(chkpt_save_path, ckpt)
 
     if _RUN_EVAL.value:
         # CHECKPOINTING
@@ -73,7 +74,7 @@ def main(_):
         # save_args = orbax_utils.save_args_from_target(ckpt)
         # orbax_checkpointer.save('./project_name/orbax_saves/single_save', ckpt)#, save_args=save_args)
         with jax.disable_jit(disable=True):
-            out = environment_loop.run_eval(config, orbax_checkpointer)  # TODO why can't I wrap this in a jax.jit?
+            out = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path)  # TODO why can't I wrap this in a jax.jit?
 
     # from .jaxmarl_iql import make_train
     # with open("project_name/iql.yaml", "r") as file:
