@@ -34,20 +34,19 @@ license = {text = "MIT"}
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
 
-# Uncomment this if use use JAX
  [[tool.pdm.source]]
  name = "jax_cuda"
  url = "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
  verify_ssl = true
  type = "find_links"
 
- [tool.pdm.scripts]
+  [tool.pdm.scripts]
 test.cmd = "pytest -n auto --maxprocesses 8 --dist loadfile"
 # test.env = { JAX_PLATFORM_NAME = "cpu", JAX_DISABLE_MOST_OPTIMIZATIONS = "1" }
 lint.shell = "ruff . && black --check ."
 fmt.shell = "ruff --fix . && black ."
 
- [tool.pdm.dev-dependencies]
+  [tool.pdm.dev-dependencies]
 dev = [
     "lxm3>=0.4.0",
     "ruff>=0.1.11",
