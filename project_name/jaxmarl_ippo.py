@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import hydra
 from omegaconf import OmegaConf
 import wandb
-# from envs.AYS_JAX import AYS_Environment
+from .envs.AYS_JAX import AYS_Environment
 import sys
 
 
@@ -148,7 +148,7 @@ def make_train(config):
                 obsv, env_state, reward, done, info, env_graph_state = jax.vmap(env.step)(rng_step, env_state, env_act, env_graph_state)
                 # print(env_state)
 
-                # info = jax.tree_map(lambda x: x.reshape((config["NUM_ACTORS"])), info)  # it used to be done by actors but now each env has the number of agent causations
+                info = jax.tree_map(lambda x: x.reshape((config["NUM_ACTORS"])), info)  # it used to be done by actors but now each env has the number of agent causations
                 transition = Transition(
                     batchify(done, env.agents, config["NUM_ACTORS"]).squeeze(),
                     action,
@@ -170,9 +170,6 @@ def make_train(config):
             train_state, env_state, last_obs, graph_state, rng = runner_state
             last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
             _, last_val = network.apply(train_state.params, last_obs_batch)
-
-            print(last_val)
-            sys.exit()
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -319,12 +316,12 @@ def make_train(config):
     return train
 
 
-if __name__ == "__main__":
-    with open("ippo_ff.yaml", "r") as file:
-        config = yaml.safe_load(file)
-
-    rng = jax.random.PRNGKey(42)
-
-    train = jax.jit(make_train(config))
-    out = jax.block_until_ready(train(rng))
+# if __name__ == "__main__":
+#     with open("ippo_ff.yaml", "r") as file:
+#         config = yaml.safe_load(file)
+#
+#     rng = jax.random.PRNGKey(42)
+#
+#     train = jax.jit(make_train(config))
+#     out = jax.block_until_ready(train(rng))
 
