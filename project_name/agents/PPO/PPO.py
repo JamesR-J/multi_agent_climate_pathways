@@ -16,8 +16,8 @@ class PPOAgent:
                  config):
         self.config = config
         self.env = env
-        self.network = ActorCriticRNN(env.action_space[env.agents[0]].n, config=config)
-        init_x = (jnp.zeros((1, config["NUM_ENVS"], env.observation_space[env.agents[0]].shape[0])),
+        self.network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config)
+        init_x = (jnp.zeros((1, config["NUM_ENVS"], env.observation_space(env.agents[0]).shape[0])),
                   jnp.zeros((1, config["NUM_ENVS"])),
                   )
         key, _key = jrandom.split(key)

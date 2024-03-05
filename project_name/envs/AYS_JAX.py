@@ -93,8 +93,8 @@ class AYS_Environment(object):
                              "ET": 2,
                              "LG+ET": 3}
         self.game_actions_idx = {v: k for k, v in self.game_actions.items()}
-        self.action_space = {agent: Discrete(len(self.game_actions)) for agent in self.agents}
-        self.observation_space = {agent: Box(low=0.0, high=1.0, shape=(4,)) for agent in self.agents}
+        self.action_spaces = {agent: Discrete(len(self.game_actions)) for agent in self.agents}
+        self.observation_spaces = {agent: Box(low=0.0, high=1.0, shape=(4,)) for agent in self.agents}
 
         """
         This values define the planetary boundaries of the AYS model
@@ -166,6 +166,12 @@ class AYS_Environment(object):
         # full_obs = jnp.concatenate((env_state.ayse, env_state.prev_actions.reshape(-1, 1)), axis=1)
         # return {agent: full_obs[self.agent_ids[agent]] for agent in self.agents}
         return {agent: env_state.ayse[self.agent_ids[agent]] for agent in self.agents}
+
+    def observation_space(self, agent: str):
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent: str):
+        return self.action_spaces[agent]
 
     @partial(jax.jit, static_argnums=(0,))
     def step(self,
@@ -822,7 +828,7 @@ def example():
 
         # Sample random actions.
         key_act = jax.random.split(key_act, env.num_agents)
-        actions = {agent: env.action_space[agent].sample(key_act[i]) for i, agent in enumerate(env.agents)}
+        actions = {agent: env.action_space(agent).sample(key_act[i]) for i, agent in enumerate(env.agents)}
         actions = {agent: 0 for i, agent in enumerate(env.agents)}
 
         # print("action:", env.game_actions_idx[actions[env.agents[state.agent_in_room]].item()])

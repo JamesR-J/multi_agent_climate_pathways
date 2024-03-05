@@ -8,23 +8,9 @@ authors = [
 dependencies = [
     "absl-py>=2.1.0",
     "jax[cuda12_pip]>=0.4.23",
-    #    "torch>=2.1.2",
-    #    "torchvision>=0.16.2",
-    #    "torchaudio>=2.1.2",
-    #    "matplotlib>=3.8.2",
-    #    "IPython>=8.20.0",
     "wandb>=0.16.2",
-    #    "scipy>=1.12.0",
-    #    "gym>=0.26.2",
     "lxm3>=0.4.1",
     "pytz>=2023.3.post1",
-    "flax>=0.8.1",
-    "optax",
-    "distrax",
-    "chex>=0.1.85",
-    #    "jax>=0.4.24",
-    "jaxmarl>=0.0.2",
-    "flashbax>=0.1.0",
 ]
 requires-python = "==3.10.*"
 readme = "README.md"
@@ -40,13 +26,13 @@ build-backend = "pdm.backend"
  verify_ssl = true
  type = "find_links"
 
-  [tool.pdm.scripts]
+    [tool.pdm.scripts]
 test.cmd = "pytest -n auto --maxprocesses 8 --dist loadfile"
 # test.env = { JAX_PLATFORM_NAME = "cpu", JAX_DISABLE_MOST_OPTIMIZATIONS = "1" }
 lint.shell = "ruff . && black --check ."
 fmt.shell = "ruff --fix . && black ."
 
-  [tool.pdm.dev-dependencies]
+    [tool.pdm.dev-dependencies]
 dev = [
     "lxm3>=0.4.0",
     "ruff>=0.1.11",

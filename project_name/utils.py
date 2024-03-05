@@ -48,9 +48,11 @@ def import_class_from_folder(folder_name):
         print(f"Error: Folder '{folder_name}' not found in any search paths.")
         return None
 
-def batchify(x: dict, agent_list):
-    return jnp.stack([x[a] for a in agent_list])
+def batchify(x: dict, agent_list, num_agents, num_envs):
+    inter = jnp.stack([x[a] for a in agent_list])
+    return inter.reshape((num_agents, num_envs, -1))
 
 
-def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
+def unbatchify(x: jnp.ndarray, agent_list, num_agents, num_devices):
+    x = x.reshape((num_agents, num_devices, -1))
     return {a: x[i] for i, a in enumerate(agent_list)}

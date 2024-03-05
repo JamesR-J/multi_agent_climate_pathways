@@ -1,5 +1,5 @@
 "LR": 2.5e-4
-"NUM_ENVS": 64  # 128  # TODO make it work with 1 env
+"NUM_ENVS": 128  # TODO make it work with 1 env
 "NUM_STEPS": 256
 "NUM_EVAL_STEPS": 2000
 "TOTAL_TIMESTEPS": 80000000
@@ -18,7 +18,7 @@
 "GRU_HIDDEN_DIM": 256
 "SCALE_CLIP_EPS": False
 
-"NUM_AGENTS": 10
+"NUM_AGENTS": 2
 "REWARD_TYPE": ["PB"]
 "AGENT_TYPE": ["PPO"]  # , "PPO_RNN", "PPO_RNN"]
 

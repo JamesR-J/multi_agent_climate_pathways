@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import hydra
 from omegaconf import OmegaConf
 import wandb
-from .envs.AYS_JAX import AYS_Environment
+# from envs.AYS_JAX import AYS_Environment
 import sys
 
 
@@ -82,7 +82,7 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     return {a: x[i] for i, a in enumerate(agent_list)}
 
 
-def make_train(config, orbax_checkpointer):
+def make_train(config):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"], num_agents=config["NUM_AGENTS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
@@ -91,6 +91,8 @@ def make_train(config, orbax_checkpointer):
     config["MINIBATCH_SIZE"] = (
             config["NUM_ACTORS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
     )
+    config["REWARD_TYPE"] *= config["NUM_AGENTS"]
+    config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
     def linear_schedule(count):
         frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"]
@@ -99,9 +101,9 @@ def make_train(config, orbax_checkpointer):
     def train(rng):
 
         # INIT NETWORK
-        network = ActorCritic(env.action_space[env.agents[0]].n, activation=config["ACTIVATION"])
+        network = ActorCritic(env.action_space(env.agents[0]).n, activation=config["ACTIVATION"])
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(env.observation_space[env.agents[0]].shape)
+        init_x = jnp.zeros(env.observation_space(env.agents[0]).shape)
         network_params = network.init(_rng, init_x)
         if config["ANNEAL_LR"]:
             tx = optax.chain(
@@ -168,6 +170,9 @@ def make_train(config, orbax_checkpointer):
             train_state, env_state, last_obs, graph_state, rng = runner_state
             last_obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
             _, last_val = network.apply(train_state.params, last_obs_batch)
+
+            print(last_val)
+            sys.exit()
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -312,4 +317,14 @@ def make_train(config, orbax_checkpointer):
         return {"runner_state": runner_state, "metrics": metric}
 
     return train
+
+
+if __name__ == "__main__":
+    with open("ippo_ff.yaml", "r") as file:
+        config = yaml.safe_load(file)
+
+    rng = jax.random.PRNGKey(42)
+
+    train = jax.jit(make_train(config))
+    out = jax.block_until_ready(train(rng))
 

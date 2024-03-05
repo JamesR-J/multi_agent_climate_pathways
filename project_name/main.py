@@ -14,6 +14,7 @@ from .jaxmarl_ippo import make_train
 from .eval_episodes import make_eval
 from . import environment_loop
 from ml_collections import config_flags
+import jax.numpy as jnp
 
 
 _WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
@@ -63,9 +64,16 @@ def main(_):
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     chkpt_save_path = "./lxm3-staging/checkpoints/single_save_" + str(config["SEED"])
 
+    jax.profiler.start_trace("/tmp/tensorboard")
+
     # train_jit = jax.jit(make_train(config, orbax_checkpointer), device=jax.devices()[0])
     with jax.disable_jit(disable=_DISABLE_JIT.value):
-        out = environment_loop.run_train(config)  # TODO why can't I wrap this in a jax.jit?
+        train = jax.jit(environment_loop.run_train(config))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
+        out = train().block_until_ready()
+        jax.profiler.stop_trace()
+        # out = train()
+        # out = jax.pmap(train(), devices=jax.devices())(jnp.arange(4))  # TODO sort out this pmap
+        # out = environment_loop.run_train(config)  # TODO why can't I wrap this in a jax.jit?
         chkpt = {'model': out["runner_state"][0][0]}
         # chkpt_save_path = '/jruddjon/lxm/flax_ckpt/orbax/single_save_' + str(config["SEED"])
         # orbax_checkpointer.save(chkpt_save_path, ckpt)

@@ -71,8 +71,9 @@ class MultiAgent(Agent):
     @partial(jax.jit, static_argnums=(0,))
     def update(self, update_state: Any, trajectory_batch: Any):  # TODO add better chex
         train_state, env_state, last_obs, last_done, hstate, key = update_state
-        last_obs_batch = batchify(last_obs, self.env.agents)
+        last_obs_batch = batchify(last_obs, self.env.agents, self.env.num_agents, self.config["NUM_ENVS"])
         for agent in self.env.agents:  # TODO this is probs mega slowsies
+            # TODO be good to pmap agents as think this is the biggest storage draw, i,e. distribute agents between GPU
             individual_trajectory_batch = jax.tree_map(lambda x: x[:, self.env.agent_ids[agent]], trajectory_batch)
             individual_train_state = (train_state[agent], env_state, last_obs_batch[self.env.agent_ids[agent], :],
                                       last_done[self.env.agent_ids[agent]],
