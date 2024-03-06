@@ -1,7 +1,7 @@
 import os
 import pickle
 
-from absl import app, flags
+from absl import app, flags, logging
 import sys
 from .envs.AYS_JAX import AYS_Environment, example
 import jax
@@ -10,11 +10,13 @@ import yaml
 import wandb
 import orbax
 import orbax.checkpoint
+from flax.training import orbax_utils
 from .jaxmarl_ippo import make_train
 from .eval_episodes import make_eval
 from . import environment_loop
 from ml_collections import config_flags
 import jax.numpy as jnp
+import shutil
 
 
 _WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
@@ -23,28 +25,17 @@ _WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
-_RUN_EVAL = flags.DEFINE_boolean("run_eval", False, "run evaluation steps or not")
-# _RUN_EVAL = flags.DEFINE_boolean("run_eval", True, "run evaluation steps or not")
-
 _CHKPT_LOAD = flags.DEFINE_boolean("chkpt_load", False, "whether to load from checkpoint")
-# parser.add_argument('--chkpt_load_path', default="./checkpoints/env=ays_reward_type=['PB', 'PB']_obs_type=agent_only_num_agents=2_episodes=2000/end_time=13-09-2023_10-55-06.tar")  # homo
-
-_OBS_TYPE = flags.DEFINE_string("obs_type", "agent_only", "which observation type to use")
-# parser.add_argument('--observation_type', default="all_shared")
-
-_TEST_ACTIONS = flags.DEFINE_boolean("test_actions", False, "whether to use random actions")
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
+
+_WORK_DIR = flags.DEFINE_string("workdir", "checkpoints", "Work unit directory.")
 
 _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 # TODO sort this out so have one total config or something, is a little dodge atm
 
 
 def main(_):
-    # print(_SEED.value)
-    # print(_WANDB.value)
-    # sys.exit()
-
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
@@ -61,38 +52,46 @@ def main(_):
                config=config,
                mode=wandb_mode)
 
+    ckpt_dir = '/tmp/flax_chkpt'
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    chkpt_save_path = "./lxm3-staging/checkpoints/single_save_" + str(config["SEED"])
+    chkpt_save_path = '/tmp/flax_chkpt/single_save_' + str(config["SEED"])
+
+    config["NUM_DEVICES"] = len(jax.local_devices())
+    logging.info(f"There are {config['NUM_DEVICES']} GPUs")
+
+    os.makedirs(_WORK_DIR.value, exist_ok=True)
 
     # jax.profiler.start_trace("/tmp/tensorboard")
 
-    rng = jax.random.PRNGKey(config["SEED"])
+    if config["RUN_TRAIN"]:
+        if os.path.exists(ckpt_dir):
+            shutil.rmtree(ckpt_dir)
 
-    # train_jit = jax.jit(make_train(config, orbax_checkpointer), device=jax.devices()[0])
-    with jax.disable_jit(disable=_DISABLE_JIT.value):
-        # train = jax.jit(environment_loop.run_train(config))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
-        # out = train().block_until_ready()
+        with jax.disable_jit(disable=_DISABLE_JIT.value):
+            train = jax.jit(environment_loop.run_train(config))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
+            out = jax.block_until_ready(train())
 
-        train = jax.jit(make_train(config))
-        out = jax.block_until_ready(train(rng))
+            # rng = jax.random.PRNGKey(config["SEED"])
+            # train = jax.jit(make_train(config))
+            # out = jax.block_until_ready(train(rng))
 
-        # jax.profiler.stop_trace()
+            # jax.profiler.stop_trace()
 
         chkpt = {'model': out["runner_state"][0][0]}
-        # chkpt_save_path = '/jruddjon/lxm/flax_ckpt/orbax/single_save_' + str(config["SEED"])
-        # orbax_checkpointer.save(chkpt_save_path, ckpt)
+        save_args = orbax_utils.save_args_from_target(chkpt)
+        orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
 
-        # with open(chkpt_save_path, 'wb') as file:
-        #     pickle.dump(chkpt, file)
-    if _RUN_EVAL.value:
+    if config["RUN_EVAL"]:
         # CHECKPOINTING
         # Some arbitrary nested pytree with a dictionary and a NumPy array.
         # config_chkpt = {'dimensions': np.array([5, 3])}  # TODO understand this
 
         # save_args = orbax_utils.save_args_from_target(ckpt)
         # orbax_checkpointer.save('./project_name/orbax_saves/single_save', ckpt)#, save_args=save_args)
-        with jax.disable_jit(disable=True):
-            out = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path)  # TODO why can't I wrap this in a jax.jit?
+        with jax.disable_jit(disable=False):
+            # eval = jax.jit(environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path))  # TODO why can't jit this?
+            eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path)
+            out = jax.block_until_ready(eval())
 
     # from .jaxmarl_iql import make_train
     # with open("project_name/iql.yaml", "r") as file:

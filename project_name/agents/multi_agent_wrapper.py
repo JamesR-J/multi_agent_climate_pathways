@@ -31,11 +31,13 @@ class MultiAgent(Agent):
         action_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]), dtype=int)
         value_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
         log_prob_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
+        pi_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"], self.env.action_space(self.env.agents[0]).n))
+        spec_key_n = jnp.zeros((self.env.num_agents, 2))
         for agent in self.env.agents:
             ac_in = (obs_batch[jnp.newaxis, self.env.agent_ids[agent], :],
                      last_done[jnp.newaxis, self.env.agent_ids[agent]],
                      )
-            ind_hstate, ind_action, ind_log_prob, ind_value, key = self.agent_list[agent].act(train_state[agent],
+            ind_hstate, ind_action, ind_log_prob, ind_value, key, pi, spec_key = self.agent_list[agent].act(train_state[agent],
                                                                                               hstate[
                                                                                               self.env.agent_ids[agent],
                                                                                               :],
@@ -43,30 +45,11 @@ class MultiAgent(Agent):
             action_n = action_n.at[self.env.agent_ids[agent]].set(ind_action[0])
             value_n = value_n.at[self.env.agent_ids[agent]].set(ind_value[0])
             log_prob_n = log_prob_n.at[self.env.agent_ids[agent]].set(ind_log_prob[0])
+            pi_n = pi_n.at[self.env.agent_ids[agent]].set(pi[0])
+            spec_key_n = spec_key_n.at[self.env.agent_ids[agent]].set(spec_key)
             hstate = hstate.at[self.env.agent_ids[agent], :].set(ind_hstate[0])
 
-        return hstate, action_n, log_prob_n, value_n, key
-
-        # def _agent_act(agent_id, hstate, obs_batch, last_done, key):
-        #     ac_in = (obs_batch[jnp.newaxis, :],
-        #              last_done[jnp.newaxis],
-        #              )
-        #     # print(agent_list[env.agents[agent_id]])
-        #     # print(agent_id)
-        #     # # print(train_state_list)
-        #     # sys.exit()
-        #     hstate, action, log_prob, value = agent_list[env.agents[agent_id]].act(train_state_list[env.agents[agent_id]], hstate, ac_in, key)
-        #     return hstate, action, log_prob, value
-        #
-        # reset_key = jrandom.split(key, env.num_agents)
-        # # print(agent_list)
-        # # print(batchify(train_state_list, env.agents))
-        # # print(hstate)
-        # # print(obs_batch)
-        # # print(last_done)
-        # # print(reset_key)
-        # hstate, action_n, log_prob_n, value_n, key = jax.vmap(_agent_act)(batchify(env.agent_ids, env.agents)[:, jnp.newaxis], hstate, obs_batch, last_done, reset_key)
-        # sys.exit()
+        return hstate, action_n, log_prob_n, value_n, key, pi_n, spec_key_n
 
     @partial(jax.jit, static_argnums=(0,))
     def update(self, update_state: Any, trajectory_batch: Any):  # TODO add better chex

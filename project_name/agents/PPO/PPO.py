@@ -48,12 +48,12 @@ class PPOAgent:
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
-        hstate, pi, value = self.network.apply(train_state.params, hstate, ac_in)
+        hstate, pi, value, action_logits = self.network.apply(train_state.params, hstate, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
         log_prob = pi.log_prob(action)
 
-        return hstate, action, log_prob, value, key  # TODO do we need to return key?
+        return hstate, action, log_prob, value, key, action_logits, _key  # TODO do we need to return key?
 
     @partial(jax.jit, static_argnums=(0))
     def update(self, runner_state, traj_batch):
@@ -64,7 +64,7 @@ class PPOAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
-        _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)
+        _, _, last_val, _ = self.network.apply(train_state.params, hstate, ac_in)
         last_val = last_val.squeeze()
 
         def _calculate_gae(traj_batch, last_val):
@@ -95,7 +95,7 @@ class PPOAgent:
 
                 def _loss_fn(params, init_hstate, traj_batch, gae, targets):
                     # RERUN NETWORK
-                    _, pi, value = self.network.apply(params,
+                    _, pi, value, _ = self.network.apply(params,
                                                       init_hstate.squeeze(axis=0),
                                                       (traj_batch.obs,
                                                        traj_batch.done,

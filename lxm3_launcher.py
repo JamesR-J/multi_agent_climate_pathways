@@ -24,7 +24,7 @@ flags.mark_flags_as_required(["entrypoint"])
 def main(_):
     with xm_cluster.create_experiment(experiment_title="basic") as experiment:
         # if _USE_GPU.value:
-        job_requirements = xm_cluster.JobRequirements(gpu=1, ram=32 * xm.GB)  # TODO normally 8 gbs but now 64
+        job_requirements = xm_cluster.JobRequirements(gpu=1, ram=1 * xm.GB)  # TODO normally 8 gbs but now 64
         # else:
         #     job_requirements = xm_cluster.JobRequirements(ram=8 * xm.GB)
         if _LAUNCH_ON_CLUSTER.value:
@@ -33,7 +33,7 @@ def main(_):
             # Non-UCL users, use `xm_cluster.GridEngine directly`.
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=4 * xm.Hr,  # 48 is max
+                walltime=10 * xm.Min,  # 48 is max
                 # extra_directives=["-l gpu_type=gtx1080ti"]  # TODO allows specifying GPU type on a cluster
             )
         else:
@@ -71,43 +71,43 @@ def main(_):
         """
         SINGLE RUN BELOW
         """
-        # experiment.add(
-        #     xm.Job(
-        #         executable=executable,
-        #         executor=executor,
-        #         # You can pass additional arguments to your executable with args
-        #         # This will be translated to `--seed 1`
-        #         # Note for booleans we currently use the absl.flags convention
-        #         # so {'gpu': False} will be translated to `--nogpu`
-        #         # args={"seed": 1},
-        #         # You can customize environment_variables as well.
-        #         args={"wandb": False},
-        #         env_vars={"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
-        #                   "WANDB_API_KEY": wandb_api_key,
-        #                   "WANDB_PROJECT": "climate_pathways",
-        #                   "WANDB_RUN_GROUP": "intro_tests"}
-        #     )
-        # )
+        experiment.add(
+            xm.Job(
+                executable=executable,
+                executor=executor,
+                # You can pass additional arguments to your executable with args
+                # This will be translated to `--seed 1`
+                # Note for booleans we currently use the absl.flags convention
+                # so {'gpu': False} will be translated to `--nogpu`
+                # args={"seed": 1},
+                # You can customize environment_variables as well.
+                args={"wandb": False},
+                env_vars={"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+                          "WANDB_API_KEY": wandb_api_key,
+                          "WANDB_PROJECT": "multi_agent_climate_pathways",
+                          "WANDB_RUN_GROUP": "intro_tests"}
+            )
+        )
 
         """ 
         BATCH RUN BELOW
         """
-        # To submit parameter sweep by array jobs, you can use the batch context
-        # Without the batch context, jobs will be submitted individually.
-        seed_list = [42, 15, 98, 44, 22, 68]
-        args = [{"seed": seed, "wandb": True, "disable_jit": False} for seed in seed_list]
-        batch_name = "homo 4 agents PPO"
-        env_vars = [{"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
-                     "WANDB_API_KEY": wandb_api_key,
-                     "WANDB_PROJECT": "multi_agent_climate_pathways",
-                     "WANDB_RUN_GROUP": batch_name,
-                     "WANDB_NAME": f"{seed}",
-                     "TASK": f"foo_{seed}"} for seed in seed_list]
-        experiment.add(
-            xm_cluster.ArrayJob(
-                executable=executable, executor=executor, args=args, env_vars=env_vars
-            )
-        )
+        # # To submit parameter sweep by array jobs, you can use the batch context
+        # # Without the batch context, jobs will be submitted individually.
+        # seed_list = [42, 15, 98, 44, 22, 68]
+        # args = [{"seed": seed, "wandb": True, "disable_jit": False} for seed in seed_list]
+        # batch_name = "10 agents PPO jaxmarl gpu"
+        # env_vars = [{"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
+        #              "WANDB_API_KEY": wandb_api_key,
+        #              "WANDB_PROJECT": "multi_agent_climate_pathways",
+        #              "WANDB_RUN_GROUP": batch_name,
+        #              "WANDB_NAME": f"{seed}",
+        #              "TASK": f"foo_{seed}"} for seed in seed_list]
+        # experiment.add(
+        #     xm_cluster.ArrayJob(
+        #         executable=executable, executor=executor, args=args, env_vars=env_vars
+        #     )
+        # )
 
 if __name__ == "__main__":
     app.run(main)

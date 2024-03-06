@@ -8,7 +8,8 @@ import numpy as np
 from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any, Dict
 import distrax
-
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 class ScannedRNN(nn.Module):
     @functools.partial(nn.scan,
@@ -64,4 +65,4 @@ class ActorCriticRNN(nn.Module):
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
 
-        return hidden, pi, jnp.squeeze(critic, axis=-1)
+        return hidden, pi, jnp.squeeze(critic, axis=-1), action_logits

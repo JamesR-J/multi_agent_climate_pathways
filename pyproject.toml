@@ -9,7 +9,6 @@ dependencies = [
     "absl-py>=2.1.0",
     "jax[cuda12_pip]>=0.4.23",
     "wandb>=0.16.2",
-    "lxm3==0.4.0",
     "pytz>=2023.3.post1",
     "tensorflow>=2.11.1",
     "tensorboard-plugin-profile>=2.15.1",
@@ -18,6 +17,8 @@ dependencies = [
     "chex>=0.1.85",
     "jaxmarl>=0.0.2",
     "flashbax>=0.1.0",
+    "lxm3==0.4.2",
+    "seaborn>=0.13.2",
 ]
 requires-python = "==3.10.*"
 readme = "README.md"
@@ -33,13 +34,13 @@ build-backend = "pdm.backend"
  verify_ssl = true
  type = "find_links"
 
-[tool.pdm.scripts]
+     [tool.pdm.scripts]
 test.cmd = "pytest -n auto --maxprocesses 8 --dist loadfile"
 # test.env = { JAX_PLATFORM_NAME = "cpu", JAX_DISABLE_MOST_OPTIMIZATIONS = "1" }
 lint.shell = "ruff . && black --check ."
 fmt.shell = "ruff --fix . && black ."
 
-     [tool.pdm.dev-dependencies]
+          [tool.pdm.dev-dependencies]
 dev = [
     "lxm3>=0.4.0",
     "ruff>=0.1.11",

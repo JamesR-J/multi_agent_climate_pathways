@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
-from ..utils import import_class_from_folder
+from ..utils import import_class_from_folder, batchify
 from functools import partial
 from typing import Any, Dict, Tuple
 import chex
@@ -27,16 +27,16 @@ class Agent:
         ac_in = (obs_batch,
                  last_done,
                  )
-        hstate, action, log_prob, value, key = self.agent.act(train_state, hstate[0], ac_in, key)
-        return hstate[jnp.newaxis, :], action, log_prob, value, key
+        hstate, action, log_prob, value, key, pi, spec_key = self.agent.act(train_state, hstate[0], ac_in, key)
+        return hstate[jnp.newaxis, :], action, log_prob, value, key, pi, spec_key[jnp.newaxis, :]
 
     @partial(jax.jit, static_argnums=(0,))
     def update(self, update_state: chex.Array, trajectory_batch: chex.Array) -> Tuple[Any, Any, Dict[str, chex.Array], chex.Array, chex.Array]:  # TODO add better chex
-        train_state, env_state, obs, done_batch, hstate, key = update_state
-        update_state = train_state, env_state, obs[self.env.agents[0]], done_batch.squeeze(axis=0), hstate[0], key
+        train_state, env_state, last_obs, done_batch, hstate, key = update_state
+        last_obs_batch = batchify(last_obs, self.env.agents, self.env.num_agents, self.config["NUM_ENVS"])
+        update_state = train_state, env_state, last_obs_batch[0], done_batch.squeeze(axis=0), hstate[0], key
         trajectory_batch = jax.tree_map(lambda x: x[:, 0], trajectory_batch)
-        train_state, env_state, last_obs, last_done, hstate, key = self.agent.update(update_state, trajectory_batch)
-        return train_state, env_state, {self.env.agents[0]: last_obs}, last_done[jnp.newaxis, :], hstate[jnp.newaxis], key
+        train_state, env_state, obs, last_done, hstate, key = self.agent.update(update_state, trajectory_batch)
+        return train_state, env_state, last_obs, last_done[jnp.newaxis, :], hstate[jnp.newaxis], key
 
-    # TODO add wrapper for multi agent on top of this single agent
     # TODO add a thing so hstate is fine if don't have one etc
