@@ -19,6 +19,9 @@ dependencies = [
     "flashbax>=0.1.0",
     "lxm3==0.4.2",
     "seaborn>=0.13.2",
+    "duckdb>=0.10.0",
+    "pyarrow>=15.0.0",
+    "tqdm>=4.66.2",
 ]
 requires-python = "==3.10.*"
 readme = "README.md"
@@ -34,13 +37,13 @@ build-backend = "pdm.backend"
  verify_ssl = true
  type = "find_links"
 
-     [tool.pdm.scripts]
+        [tool.pdm.scripts]
 test.cmd = "pytest -n auto --maxprocesses 8 --dist loadfile"
 # test.env = { JAX_PLATFORM_NAME = "cpu", JAX_DISABLE_MOST_OPTIMIZATIONS = "1" }
 lint.shell = "ruff . && black --check ."
 fmt.shell = "ruff --fix . && black ."
 
-          [tool.pdm.dev-dependencies]
+             [tool.pdm.dev-dependencies]
 dev = [
     "lxm3>=0.4.0",
     "ruff>=0.1.11",

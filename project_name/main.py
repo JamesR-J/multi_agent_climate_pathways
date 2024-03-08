@@ -19,9 +19,6 @@ import jax.numpy as jnp
 import shutil
 
 
-_WANDB = flags.DEFINE_boolean("wandb", False, "wandb or not")
-# _WANDB = flags.DEFINE_boolean("wandb", True, "wandb or not")
-
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
@@ -31,6 +28,10 @@ _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
 _WORK_DIR = flags.DEFINE_string("workdir", "checkpoints", "Work unit directory.")
 
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
+
+_HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether homo or hetero")
+
 _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 # TODO sort this out so have one total config or something, is a little dodge atm
 
@@ -39,33 +40,28 @@ def main(_):
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
+    config["NUM_AGENTS"] = _NUM_AGENTS.value
+    config["HOMOGENEOUS"] = _HOMOGENEOUS.value
 
     config["REWARD_TYPE"] *= config["NUM_AGENTS"]
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
-    if _WANDB.value:
-        wandb_mode = "online"
-    else:
-        wandb_mode = "disabled"
+    wandb.init(config=config)
 
-    wandb.init(entity="jamesr-j",
-               config=config,
-               mode=wandb_mode)
-
-    ckpt_dir = '/tmp/flax_chkpt'
+    # chkpt_dir = os.path.abspath("../tmp/flax_chkpt")
+    chkpt_dir = os.path.abspath("cluster/project0/orbax")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    chkpt_save_path = '/tmp/flax_chkpt/single_save_' + str(config["SEED"])
+    chkpt_name = '/single_save_' + os.environ["WANDB_NAME"]
+    chkpt_save_path = chkpt_dir + chkpt_name  # TODO improve this with experiment name maybe
 
     config["NUM_DEVICES"] = len(jax.local_devices())
     logging.info(f"There are {config['NUM_DEVICES']} GPUs")
 
-    os.makedirs(_WORK_DIR.value, exist_ok=True)
-
     # jax.profiler.start_trace("/tmp/tensorboard")
 
     if config["RUN_TRAIN"]:
-        if os.path.exists(ckpt_dir):
-            shutil.rmtree(ckpt_dir)
+        # if os.path.exists(chkpt_dir):
+        #     shutil.rmtree(chkpt_dir)  # TODO maybe remove this
 
         with jax.disable_jit(disable=_DISABLE_JIT.value):
             train = jax.jit(environment_loop.run_train(config))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
@@ -80,6 +76,8 @@ def main(_):
         chkpt = {'model': out["runner_state"][0][0]}
         save_args = orbax_utils.save_args_from_target(chkpt)
         orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
+
+        shutil.move(chkpt_save_path, os.path.abspath("../../home/jruddjon/lxm3-staging/checkpoints") + chkpt_name)
 
     if config["RUN_EVAL"]:
         # CHECKPOINTING

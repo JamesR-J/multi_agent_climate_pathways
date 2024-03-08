@@ -122,8 +122,6 @@ def main(_):
             for index in _SWEEP_INDEX.value.split(","):
                 filtered_sweep.append(sweep[int(index)])
             sweep = filtered_sweep
-        print(sweep)
-        sys.exit()
         logging.info("Will launch %d jobs", len(sweep))
         if _DRY_RUN.value:
             logging.info("Will launch %d jobs with the following parameters", len(sweep))

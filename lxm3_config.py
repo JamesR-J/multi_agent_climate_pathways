@@ -1,36 +1,53 @@
 import sys
-
+import itertools
+from ml_collections import config_dict
 
 def get_config():
-    """
-    Has:
-    exp_name
-    sweep
-    sweep_index
-    wandb_group
-    wandb_project
-    """
+    config = config_dict.ConfigDict()
+    config.LR = 2.5e-4
+    config.NUM_ENVS = 128
+    config.NUM_STEPS = 256
+    config.TOTAL_TIMESTEPS = 100
+    config.UPDATE_EPOCHS = 4
+    config.NUM_MINIBATCHES = 4
+    config.GAMMA = 0.99
+    config.GAE_LAMBDA = 0.95
+    config.CLIP_EPS = 0.2
+    config.ENT_COEF = 0.5
+    config.VF_COEF = 0.5
+    config.MAX_GRAD_NORM = 0.5
+    config.ACTIVATION = "tanh"
+    config.ANNEAL_LR = True
+    config.GRU_HIDDEN_DIM = 256
+    config.SCALE_CLIP_EPS = False
 
-    seed_list = [42, 15, 98, 44, 22, 68]
+    config.NUM_AGENTS = 2
+    config.REWARD_TYPE = ["PB"]
+    config.AGENT_TYPE = ["PPO"]
 
-    def sweep_func():
-        return "True"
+    config.HOMOGENEOUS = False
 
-    # return {"wandb_project": "multi_agent_climate_pathways",
-    #         'exp_name': "Testing tings",
-    #         "sweep": "Seed Range",
-    #         "wandb": True,
-    #         "sweep_index": [{"seed": seed} for seed in seed_list],
-    #         }
+    config.RUN_TRAIN = True
+    config.RUN_EVAL = False
+    config.NUM_EVAL_STEPS = 2000
 
-    return {"sweep_SWEEP": sweep_func(), "timeout": 2354}
-
+    return config  # TODO get this to work at some point
 
 def sweep_SWEEP():
-    seed_list = [42, 15, 98, 44, 22, 68]
-    return {"wandb_project": "multi_agent_climate_pathways",
-            'exp_name': "Testing tings",
-            "sweep": "Seed Range",
-            "wandb": True,
-            "seed": [{"seed": seed} for seed in seed_list],
-            }
+    seed_list = [28, 10, 98, 44, 22, 68]
+    homogeneous = [False, True]
+    num_agents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    combinations = itertools.product(seed_list, homogeneous, num_agents)
+    result = [{"seed": seed, "homogeneous": homo, "num_agents": agent, "disable_jit": False} for seed, homo, agent in combinations]
+
+    return result
+
+# def get_sweep():
+#     """Returns a sweep configuration for hyperparameter tuning."""
+#
+#     config = config_dict.ConfigDict()
+#     config.learning_rate = 0.001
+#     sweep_config.params["batch_size"] = config_dict.randint(16, 64)
+#     # Add other hyperparameters with sweep ranges
+#     return sweep
