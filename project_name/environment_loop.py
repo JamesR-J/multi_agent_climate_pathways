@@ -126,12 +126,12 @@ def run_train(config):
 
     return train
 
-def run_eval(config, orbax_checkpointer, chkpt_save_path):
+def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
     # TODO lots to update here
     # TODO can we reduce reusing code from above, would we make this a class? or have to import things
     # TODO or export config from the above? idk and the env?
 
-    config["NUM_ENVS"] = 1  # TODO can adjust the num envs for eval
+    config["NUM_ENVS"] = num_envs
 
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
@@ -230,35 +230,48 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path):
         metric["update_steps"] = 0
         # jax.experimental.io_callback(callback, None, metric)
 
-        distribution_logits = trajectory_batch.distribution[:, 0, :, :].reshape(
-            (config["NUM_EVAL_STEPS"] * config["NUM_ENVS"], -1))
-        eval_actions = trajectory_batch.action[:, 0, :].reshape((config["NUM_EVAL_STEPS"] * config["NUM_ENVS"]))
-        ayse_state = trajectory_batch.env_state.env_state.ayse[:, 0, :, 0, :].reshape(
-            (config["NUM_EVAL_STEPS"] * config["NUM_ENVS"], -1))
+        # TODO it does not have a device dim as agents arent pmaped, will that lead to any issues in indexing?
+        # below shape is num_eval_steps, num_agents, num_envs, num_actions
+        # now converted to num_eval_steps, num_envs, num_agents, num_actions
+        distribution_logits = jnp.swapaxes(trajectory_batch.distribution, 1, 2).reshape((config["NUM_EVAL_STEPS"] * config["NUM_ENVS"], env.num_agents, env.action_space(env.agents[0]).n))
 
-        def plot_q_differences(logits, actions, ayse):  # TODO indexed one agent for now same as in above
-            q_max = jnp.max(logits, axis=1)
-            q_avg = jnp.average(logits, axis=1)
+        # TODO need to adjust below as this is still assuming plot one agent
+        eval_actions = trajectory_batch.action[:, 0, :].reshape((config["NUM_EVAL_STEPS"] * config["NUM_ENVS"]))
+
+        # below shape is num_eval_steps, num_devices, num_envs // num_devices, num_agents, num_actions
+        ayse_state = trajectory_batch.env_state.env_state.ayse.reshape(
+            (config["NUM_EVAL_STEPS"] * config["NUM_ENVS"], env.num_agents, env.action_space(env.agents[0]).n))
+
+        def plot_q_differences(logits, actions, ayse):
+            q_max = jnp.max(logits, axis=2)
+            q_avg = jnp.average(logits, axis=2)
             q_diff = jnp.abs(q_max - q_avg)
 
-            colours = {0: 'red', 1: 'green', 2: 'blue', 3: 'purple'}
-
+            # colours = {0: 'red', 1: 'green', 2: 'blue', 3: 'purple'}
             # sns.barplot(x=jnp.arange(len(q_diff)), y=q_diff, hue=actions, legend=True)
             # plt.show()
 
+            cmaps = ["rocket", "mako"]
+            # cmaps = ["ch:s=0.5, r=-0.5", "ch:s=0.5, rot=-0.75"]
+            # cmap_range = jnp.linspace(0, 2.3, env.num_agents)
+            # cmaps = [sns.cubehelix_palette(start=val, dark=0.1, light=0.9, as_cmap=True) for val in cmap_range]
             fig, ax3d = create_figure_ays(top_down=False)
-            scatter = ax3d.scatter(xs=ayse[:, 3], ys=ayse[:, 1], zs=ayse[:, 0],
-                                   c=q_diff, alpha=0.8, s=1, cmap="mako")
+            for agent in env.agents:
+                a_ind = env.agent_ids[agent]
+                scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
+                                       c=q_diff[:, a_ind], alpha=0.8, s=1, cmap=cmaps[a_ind])
             legend1 = ax3d.legend(*scatter.legend_elements(),
                                   loc="lower left", title="Q Diff")
             ax3d.add_artist(legend1)
-            plt.show()
+            # plt.show()
+            # sys.exit()
 
-        plot_q_differences(distribution_logits, eval_actions, ayse_state)
+            return fig
 
-        sys.exit()
+        fig = plot_q_differences(distribution_logits, eval_actions, ayse_state)
 
-        return {"runner_state": runner_state, "metrics": metric}
+        # return {"runner_state": runner_state, "metrics": metric}
+        return fig
 
     return eval
 

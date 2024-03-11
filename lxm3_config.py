@@ -36,7 +36,9 @@ def get_config():
 def sweep_SWEEP():
     seed_list = [28, 10, 98, 44, 22, 68]
     homogeneous = [False, True]
-    num_agents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    # homogeneous = [False]
+    # num_agents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    num_agents = [4, 5, 6, 7, 8, 9, 10]
 
     combinations = itertools.product(seed_list, homogeneous, num_agents)
     result = [{"seed": seed, "homogeneous": homo, "num_agents": agent, "disable_jit": False} for seed, homo, agent in combinations]

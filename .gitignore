@@ -1,4 +1,4 @@
-checkpoints
+orbax_checkpoints
 plot_graphs
 plot_graphs_2
 plot_graphs_3
@@ -188,3 +188,6 @@ cython_debug/
 /wandb_api_key.txt
 /image.tar
 /pdm.lock
+/data/
+/project_name/images/
+/20240202-off2on_pretraining_analysis.ipynb

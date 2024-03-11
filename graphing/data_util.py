@@ -61,11 +61,12 @@ def write_runs_to_parquet(
 ):
     runs_to_write = []
     for run in runs:
-        subpaths = [str(getattr(run, col)) for col in partition_cols]
-        run_path = pathlib.Path(save_dir).joinpath(*subpaths)
-        filepath = run_path / _run_filename(run)
-        if not filepath.exists() or overwrite:
-            runs_to_write.append((run, filepath))
+        if run.state == "finished":  # TODO added the run.finished check
+            subpaths = [str(getattr(run, col)) for col in partition_cols]
+            run_path = pathlib.Path(save_dir).joinpath(*subpaths)
+            filepath = run_path / _run_filename(run)
+            if not filepath.exists() or overwrite:
+                runs_to_write.append((run, filepath))
     def download(run, path):
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_run_to_parquet(run, os.fspath(path))

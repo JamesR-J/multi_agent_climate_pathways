@@ -17,6 +17,7 @@ from . import environment_loop
 from ml_collections import config_flags
 import jax.numpy as jnp
 import shutil
+import tensorflow as tf
 
 
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
@@ -26,9 +27,9 @@ _CHKPT_LOAD = flags.DEFINE_boolean("chkpt_load", False, "whether to load from ch
 
 _SEED = flags.DEFINE_integer("seed", 42, "Random seed")
 
-_WORK_DIR = flags.DEFINE_string("workdir", "checkpoints", "Work unit directory.")
+_WORK_DIR = flags.DEFINE_string("workdir", "orbax_checkpoints", "Work unit directory.")
 
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
 
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether homo or hetero")
 
@@ -37,6 +38,18 @@ _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 
 
 def main(_):
+    tf.config.experimental.set_visible_devices([], "GPU")
+
+    # 2441, num_steps, num_envs, num_agents
+    # 3  =   5.60 GB
+    # 4  =   8.60 GB
+    # 5  =
+    # 6  =  16.57 GB
+    # 7  =
+    # 8  =  26.86 GB
+    # 9  = ~31.00 GB
+    # 10 =  38.00 GB
+
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
@@ -49,20 +62,24 @@ def main(_):
     wandb.init(config=config)
 
     # chkpt_dir = os.path.abspath("../tmp/flax_chkpt")
-    chkpt_dir = os.path.abspath("cluster/project0/orbax")
+    chkpt_dir = os.path.abspath("orbax_checkpoints")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    chkpt_name = '/single_save_' + os.environ["WANDB_NAME"]
-    chkpt_save_path = chkpt_dir + chkpt_name  # TODO improve this with experiment name maybe
+    chkpt_name = f'num_agents={config["NUM_AGENTS"]}/{os.environ["WANDB_NAME"]}'
+    # chkpt_name = "coop_sweep_1710158031119_2"  # TODO 5 agents innit
+    chkpt_name = "single_save_coop_agent_sweep_1"  # TODO 2 agents inni
+    chkpt_save_path = f"{chkpt_dir}/{chkpt_name}"
 
     config["NUM_DEVICES"] = len(jax.local_devices())
     logging.info(f"There are {config['NUM_DEVICES']} GPUs")
 
-    # jax.profiler.start_trace("/tmp/tensorboard")
+    if os.environ["LAUNCH_ON_CLUSTER"] == "True":  # it converts boolean to a string
+        copy_to_path = os.path.abspath("../../home/jruddjon/lxm3-staging")
+    else:
+        copy_to_path = os.path.abspath("../../home/jamesrj_desktop/PycharmProjects/multi_agent_climate_pathways")
 
     if config["RUN_TRAIN"]:
-        # if os.path.exists(chkpt_dir):
-        #     shutil.rmtree(chkpt_dir)  # TODO maybe remove this
-
+        # pass
+    # with jax.profiler.trace("/tmp/tensorboard"):
         with jax.disable_jit(disable=_DISABLE_JIT.value):
             train = jax.jit(environment_loop.run_train(config))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
             out = jax.block_until_ready(train())
@@ -71,38 +88,20 @@ def main(_):
             # train = jax.jit(make_train(config))
             # out = jax.block_until_ready(train(rng))
 
-            # jax.profiler.stop_trace()
-
         chkpt = {'model': out["runner_state"][0][0]}
         save_args = orbax_utils.save_args_from_target(chkpt)
         orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
-
-        shutil.move(chkpt_save_path, os.path.abspath("../../home/jruddjon/lxm3-staging/checkpoints") + chkpt_name)
+        shutil.copytree(chkpt_save_path, f"{copy_to_path}/orbax_checkpoints/{chkpt_name}")
+        # TODO ensure the above still works
 
     if config["RUN_EVAL"]:
-        # CHECKPOINTING
-        # Some arbitrary nested pytree with a dictionary and a NumPy array.
-        # config_chkpt = {'dimensions': np.array([5, 3])}  # TODO understand this
-
-        # save_args = orbax_utils.save_args_from_target(ckpt)
-        # orbax_checkpointer.save('./project_name/orbax_saves/single_save', ckpt)#, save_args=save_args)
+        if not config["RUN_TRAIN"]:
+            shutil.copytree(f"{copy_to_path}/orbax_checkpoints/{chkpt_name}", chkpt_save_path)
         with jax.disable_jit(disable=False):
-            # eval = jax.jit(environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path))  # TODO why can't jit this?
-            eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path)
-            out = jax.block_until_ready(eval())
+            eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=4)  # config["NUM_ENVS"])  # TODO why can't jit this?
+            out_fig = jax.block_until_ready(eval())
+            out_fig.savefig(f"{copy_to_path}/figures/{chkpt_name}.png")
 
-    # from .jaxmarl_iql import make_train
-    # with open("project_name/iql.yaml", "r") as file:
-    #     config = yaml.safe_load(file)
-    # config["SEED"] = _SEED.value
-    # config["NUM_AGENTS"] = _NUM_AGENTS.value
-    # config["REWARD_TYPE"] = _REWARD_TYPE.value * _NUM_AGENTS.value
-    #
-    # rng = jax.random.PRNGKey(config["SEED"])
-    # rngs = jax.random.split(rng, config["NUM_SEEDS"])
-    # train_vjit = jax.jit(jax.vmap(make_train(config)))
-    # with jax.disable_jit(disable=_DISABLE_JIT.value):
-    #     outs = jax.block_until_ready(train_vjit(rngs))
 
 
 if __name__ == '__main__':
