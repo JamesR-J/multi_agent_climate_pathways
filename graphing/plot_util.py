@@ -54,3 +54,4 @@ def smoothed_lineplot(x, y,
     ax.plot(output_data.x, output_data.y, **kwargs, alpha=0.9)  # added an alpha to main line
     kwargs.pop('label', None)
     ax.fill_between(output_data.x, output_data.ymin, output_data.ymax, alpha=0.1, **kwargs)
+    ax.set_ylim(0, 1)

@@ -59,7 +59,7 @@ class InfoState:
 
 class AYS_Environment(object):
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=3, homogeneous=False):
+                 plot_progress=False, num_agents=3, homogeneous=False, defined_param_start=False):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
@@ -68,6 +68,7 @@ class AYS_Environment(object):
         self.gamma = gamma
 
         self.homogeneous = homogeneous
+        self.defined_param_start = defined_param_start
 
         self.num_agents = num_agents
         self.agents = [f"agent_{i}" for i in range(num_agents)]
@@ -116,7 +117,7 @@ class AYS_Environment(object):
         self.PB_4 = jnp.concatenate((self.A_PB, jnp.array([0.0]), self.S_LIMIT))  # AYS
 
     @partial(jax.jit, static_argnums=(0,))
-    def reset(self, key: chex.PRNGKey):
+    def reset(self, key: chex.PRNGKey, initial_state: chex.Array = None):
         limit = 0.05
 
         # heterogeneous
@@ -130,6 +131,13 @@ class AYS_Environment(object):
         homo_state = jnp.full((self.num_agents, 4), homo_state)
 
         state = jax.lax.select(self.homogeneous, homo_state, hetero_state)
+        print(initial_state)
+        print(state)
+
+        state = jax.lax.select(self.defined_param_start, initial_state, state)
+
+        print(state)
+        sys.exit()
 
         state = state.at[:, 3].set(0)  # sets emissions to zero as ode solver finds delta rather than value
         actions = jnp.array([0 for _ in self.agents])
@@ -178,13 +186,14 @@ class AYS_Environment(object):
              key: chex.PRNGKey,
              state: InfoState,
              actions: Dict[str, chex.Array],
-             graph_state: chex.Array
+             graph_state: chex.Array,
+             initial_state: chex.Array = None
              ) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], Dict]:
         key, key_reset = jax.random.split(key)
         obs_st, states_st, rewards, dones, done_causations, infos, graph_states_st = self.step_env(key, state, actions,
                                                                                                    graph_state)
 
-        obs_re, states_re, graph_states_re = self.reset(key_reset)
+        obs_re, states_re, graph_states_re = self.reset(key_reset, initial_state)
 
         # Auto-reset environment based on termination
         states = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), states_re, states_st)

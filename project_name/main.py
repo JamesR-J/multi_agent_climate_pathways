@@ -33,11 +33,16 @@ _NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
 
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether homo or hetero")
 
+_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB"], "which reward functions to use")
+
 _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 # TODO sort this out so have one total config or something, is a little dodge atm
 
 
 def main(_):
+    # logging.info("FLAGS A")
+    # logging.info(flags)
+    # logging.info("FLAGS B")
     tf.config.experimental.set_visible_devices([], "GPU")
 
     # 2441, num_steps, num_envs, num_agents
@@ -48,25 +53,25 @@ def main(_):
     # 7  =
     # 8  =  26.86 GB
     # 9  = ~31.00 GB
-    # 10 =  38.00 GB
+    # 10 =  39.63 GB
 
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
-    config["NUM_AGENTS"] = _NUM_AGENTS.value
+    config["NUM_AGENTS"] = _NUM_AGENTS.value  # TODO improve this as pretty manually intesive and bad coding
     config["HOMOGENEOUS"] = _HOMOGENEOUS.value
+    config["REWARD_TYPE"] = _REWARD_TYPE.value
 
-    config["REWARD_TYPE"] *= config["NUM_AGENTS"]
+    # config["REWARD_TYPE"] *= config["NUM_AGENTS"]
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
     wandb.init(config=config)
 
-    # chkpt_dir = os.path.abspath("../tmp/flax_chkpt")
     chkpt_dir = os.path.abspath("orbax_checkpoints")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    chkpt_name = f'num_agents={config["NUM_AGENTS"]}/{os.environ["WANDB_NAME"]}'
-    # chkpt_name = "coop_sweep_1710158031119_2"  # TODO 5 agents innit
-    chkpt_name = "single_save_coop_agent_sweep_1"  # TODO 2 agents inni
+    # chkpt_name = f'{os.environ["EXPERIMENT_NAME"]}/num_agents={config["NUM_AGENTS"]}/{os.environ["WANDB_NAME"]}'
+    chkpt_name = "coop_sweep_1710158031119_2"  # TODO 5 agents innit
+    # chkpt_name = "single_save_coop_agent_sweep_1"  # TODO 2 agents inni
     chkpt_save_path = f"{chkpt_dir}/{chkpt_name}"
 
     config["NUM_DEVICES"] = len(jax.local_devices())
@@ -101,7 +106,6 @@ def main(_):
             eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=4)  # config["NUM_ENVS"])  # TODO why can't jit this?
             out_fig = jax.block_until_ready(eval())
             out_fig.savefig(f"{copy_to_path}/figures/{chkpt_name}.png")
-
 
 
 if __name__ == '__main__':

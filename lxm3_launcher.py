@@ -22,12 +22,14 @@ _LAUNCH_ON_CLUSTER = flags.DEFINE_boolean(
 _SINGULARITY_CONTAINER = flags.DEFINE_string(
     "container", None, "Path to singularity container"
 )
-_EXP_NAME = flags.DEFINE_string("exp_name", "coop_sweep", "Name of experiment")
+_EXP_NAME = flags.DEFINE_string("exp_name", "comp_sweep", "Name of experiment")
 _ENTRYPOINT = flags.DEFINE_string("entrypoint", None, "Entrypoint for experiment")
 
 # _SWEEP = flags.DEFINE_string("sweep", "SWEEP", "Name of the sweep")
 _SWEEP = flags.DEFINE_string("sweep", None, "Name of the sweep")
+
 _SWEEP_INDEX = flags.DEFINE_string("sweep_index", None, "Index of configuration in the sweep")
+# _SWEEP_INDEX = flags.DEFINE_string("sweep_index", "0", "Index of configuration in the sweep")
 
 _WANDB_GROUP = flags.DEFINE_string("wandb_group", "{xid}_{name}", "wandb group")
 _WANDB_PROJECT = flags.DEFINE_string("wandb_project", "multi_agent_climate_pathways",
@@ -69,7 +71,7 @@ def main(_):
         #     job_requirements = xm_cluster.JobRequirements(ram=8 * xm.GB)
         env_vars = {"XLA_PYTHON_CLIENT_PREALLOCATE": "false",
                     "JAX_TRACEBACK_FILTERING": "off",
-                    # "XLA_PYTHON_CLIENT_MEM_FRACTION": .95,
+                    "XLA_PYTHON_CLIENT_MEM_FRACTION": .95,
                     # "XLA_PYTHON_CLIENT_ALLOCATOR": "platform"  # allocates memory when it is needed
                     }
         if _LAUNCH_ON_CLUSTER.value:
@@ -80,9 +82,9 @@ def main(_):
             executor = ucl.UclGridEngine(
                 job_requirements,
                 walltime=8 * xm.Hr,  # 48 is max
-                extra_directives=["-l gpu_type=rtx4090"],
+                # extra_directives=["-l gpu_type=rtx4090"],
                 # extra_directives=["-l gpu_type=rtx4090 -pe gpu 3"],  # TODO allows specifying multiple GPUS
-                # extra_directives=["-l gpu_type=gtx1080ti"],  # TODO for beaker  https://hpc.cs.ucl.ac.uk/gpus/
+                extra_directives=["-l gpu_type=gtx1080ti"],  # TODO for beaker  https://hpc.cs.ucl.ac.uk/gpus/
                 # extra_directives=["-ac allow=EF"],  # TODO for myriad  https://www.rc.ucl.ac.uk/docs/Clusters/Myriad/
                 # singularity_options=xm_cluster.SingularityOptions(bind={orbax_dir: orbax_dir}),
             )
@@ -173,6 +175,7 @@ def main(_):
                 "WANDB_MODE": _WANDB_MODE.value,
                 # "WANDB_RUN_GROUP": _WANDB_GROUP.value.format(name=experiment_name, xid=xid),
                 "WANDB_RUN_GROUP": "1709908990865_coop_agent_sweep",
+                "EXPERIMENT_NAME": experiment_name
             } for wid in range(len(sweep))
         ]
         experiment.add(

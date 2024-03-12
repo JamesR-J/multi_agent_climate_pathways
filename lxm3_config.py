@@ -35,13 +35,18 @@ def get_config():
 
 def sweep_SWEEP():
     seed_list = [28, 10, 98, 44, 22, 68]
-    homogeneous = [False, True]
-    # homogeneous = [False]
+    # homogeneous = [False, True]
+    homogeneous = [False]
     # num_agents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    num_agents = [4, 5, 6, 7, 8, 9, 10]
+    num_agents = [3]
+    reward_function = ['"PB", "max_Y", "max_Y"', '"PB", "PB", "max_Y"', '"PB", "PB", "PB"']  # TODO assertion for length of this and num agents innit
 
-    combinations = itertools.product(seed_list, homogeneous, num_agents)
-    result = [{"seed": seed, "homogeneous": homo, "num_agents": agent, "disable_jit": False} for seed, homo, agent in combinations]
+    combinations = itertools.product(seed_list, homogeneous, num_agents, reward_function)
+    result = [{"seed": seed,
+               "homogeneous": homo,
+               "num_agents": agent,
+               "reward_type": reward,
+               "disable_jit": False} for seed, homo, agent, reward in combinations]
 
     return result
 
