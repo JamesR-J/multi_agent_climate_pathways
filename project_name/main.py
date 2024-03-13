@@ -69,8 +69,9 @@ def main(_):
 
     chkpt_dir = os.path.abspath("orbax_checkpoints")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    # chkpt_name = f'{os.environ["EXPERIMENT_NAME"]}/num_agents={config["NUM_AGENTS"]}/{os.environ["WANDB_NAME"]}'
-    chkpt_name = "coop_sweep_1710158031119_2"  # TODO 5 agents innit
+    file_name = os.environ["WANDB_NAME"]
+    chkpt_name = f'{os.environ["WANDB_RUN_GROUP"]}/num_agents={config["NUM_AGENTS"]}/{file_name}'
+    # chkpt_name = "coop_sweep_1710158031119_2"  # TODO 5 agents innit
     # chkpt_name = "single_save_coop_agent_sweep_1"  # TODO 2 agents inni
     chkpt_save_path = f"{chkpt_dir}/{chkpt_name}"
 
@@ -102,10 +103,14 @@ def main(_):
     if config["RUN_EVAL"]:
         if not config["RUN_TRAIN"]:
             shutil.copytree(f"{copy_to_path}/orbax_checkpoints/{chkpt_name}", chkpt_save_path)
-        with jax.disable_jit(disable=False):
+        with jax.disable_jit(disable=_DISABLE_JIT.value):
             eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=4)  # config["NUM_ENVS"])  # TODO why can't jit this?
-            out_fig = jax.block_until_ready(eval())
-            out_fig.savefig(f"{copy_to_path}/figures/{chkpt_name}.png")
+            fig_actions, fig_q_diff = jax.block_until_ready(eval())
+            directory = f"{copy_to_path}/figures/{chkpt_name}"
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            fig_actions.savefig(f"{directory}/{file_name}_actions.png")
+            fig_q_diff.savefig(f"{directory}/{file_name}_q_diff.png")
 
 
 if __name__ == '__main__':

@@ -25,8 +25,8 @@ _SINGULARITY_CONTAINER = flags.DEFINE_string(
 _EXP_NAME = flags.DEFINE_string("exp_name", "comp_sweep", "Name of experiment")
 _ENTRYPOINT = flags.DEFINE_string("entrypoint", None, "Entrypoint for experiment")
 
-# _SWEEP = flags.DEFINE_string("sweep", "SWEEP", "Name of the sweep")
-_SWEEP = flags.DEFINE_string("sweep", None, "Name of the sweep")
+_SWEEP = flags.DEFINE_string("sweep", "SWEEP", "Name of the sweep")
+# _SWEEP = flags.DEFINE_string("sweep", None, "Name of the sweep")
 
 _SWEEP_INDEX = flags.DEFINE_string("sweep_index", None, "Index of configuration in the sweep")
 # _SWEEP_INDEX = flags.DEFINE_string("sweep_index", "0", "Index of configuration in the sweep")
@@ -174,8 +174,7 @@ def main(_):
                 "WANDB_NAME": f"{experiment_name}_{xid}_{wid+1}",
                 "WANDB_MODE": _WANDB_MODE.value,
                 # "WANDB_RUN_GROUP": _WANDB_GROUP.value.format(name=experiment_name, xid=xid),
-                "WANDB_RUN_GROUP": "1709908990865_coop_agent_sweep",
-                "EXPERIMENT_NAME": experiment_name
+                "WANDB_RUN_GROUP": experiment_name,
             } for wid in range(len(sweep))
         ]
         experiment.add(
