@@ -22,7 +22,7 @@ _LAUNCH_ON_CLUSTER = flags.DEFINE_boolean(
 _SINGULARITY_CONTAINER = flags.DEFINE_string(
     "container", None, "Path to singularity container"
 )
-_EXP_NAME = flags.DEFINE_string("exp_name", "comp_sweep", "Name of experiment")
+_EXP_NAME = flags.DEFINE_string("exp_name", "single_agent_test", "Name of experiment")
 _ENTRYPOINT = flags.DEFINE_string("entrypoint", None, "Entrypoint for experiment")
 
 _SWEEP = flags.DEFINE_string("sweep", "SWEEP", "Name of the sweep")
@@ -81,7 +81,7 @@ def main(_):
             orbax_dir = "/cluster/project0/orbax"
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=8 * xm.Hr,  # 48 is max
+                walltime=4 * xm.Hr,  # 48 is max
                 # extra_directives=["-l gpu_type=rtx4090"],
                 # extra_directives=["-l gpu_type=rtx4090 -pe gpu 3"],  # TODO allows specifying multiple GPUS
                 extra_directives=["-l gpu_type=gtx1080ti"],  # TODO for beaker  https://hpc.cs.ucl.ac.uk/gpus/
@@ -90,7 +90,7 @@ def main(_):
             )
             env_vars["ORBAX_DIR"] = orbax_dir
         else:
-            FLAGS.wandb_mode = "disabled"
+            # FLAGS.wandb_mode = "disabled"
             orbax_dir = "/mnt/cluster/project0/orbax"
             executor = xm_cluster.Local(job_requirements,
                                         singularity_options=xm_cluster.SingularityOptions(bind={orbax_dir: orbax_dir}))

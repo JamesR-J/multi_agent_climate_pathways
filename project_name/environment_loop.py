@@ -14,9 +14,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from .envs.graph_functions import create_figure_ays
 from absl import logging
+import numpy as np
+import orbax
+from flax.training import orbax_utils
 
 
-def run_train(config):
+def run_train(config, checkpoint_manager, save_args):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
                           homogeneous=config["HOMOGENEOUS"])
@@ -45,7 +48,9 @@ def run_train(config):
         runner_state = (train_state, env_state, obs,
                         jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool), hstate, graph_state, key)
 
-        def _run_update(update_runner_state, unused):
+        # def _run_update(update_runner_state, unused):
+        update_runner_state = runner_state, 0
+        for step in range(config["NUM_UPDATES"] - 1400):
             runner_state, update_steps = update_runner_state
 
             def _run_episode_step(runner_state, unused):
@@ -75,7 +80,7 @@ def run_train(config):
 
                 # update tings my dude
                 # swaps agent id axis and envs so that agent id comes first
-                info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], -1), -0, 1), info)
+                info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], env.num_agents), 0, 1), info)
                 done_batch = batchify(done, env.agents, env.num_agents, config["NUM_ENVS"]).squeeze(axis=2)
                 transition = Transition(
                     jnp.full((env.num_agents, config["NUM_ENVS"]), done["__all__"].reshape((config["NUM_ENVS"]))),
@@ -103,14 +108,13 @@ def run_train(config):
             key = update_state[-1]  # TODO make this name rather than number index would probs be good inni, same as above
 
             # metric handling
-            metric = jax.tree_map(lambda x: x.reshape((config["NUM_STEPS"], config["NUM_ENVS"], env.num_agents)),
-                                  trajectory_batch.info)
+            metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
 
             def callback(metric):
                 metric_dict = {
                     # the metrics have an agent dimension, but this is identical
                     # for all agents so index into the 0th item of that dimension. not true anymore as hetero babY
-                    "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
+                    "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),  # This always follows the PB following agent_0
                     "win_rate": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"]
                 }
@@ -125,11 +129,16 @@ def run_train(config):
 
             metric["update_steps"] = update_steps
             jax.experimental.io_callback(callback, None, metric)
+
+            if step >= 800 and step <= 850:
+                checkpoint_manager.save(step, train_state)
+
             update_steps = update_steps + 1
 
-            return ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps), metric
+            update_runner_state = ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps)
+            # return ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps), metric
 
-        runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])
+        # runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])
 
         return {"runner_state": runner_state, "metrics": metric}
 
@@ -159,7 +168,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
         key = jrandom.PRNGKey(config["SEED"])
 
         if config["DEFINED_PARAM_START"]:
-            config["NUM_EVAL_STEPS"] = 2 ** 14
+            config["NUM_EVAL_STEPS"] = 2 ** 15
             meshes = jnp.array([jnp.linspace(config["LOWER_BOUND"], config["UPPER_BOUND"], config["RESOLUTION"])] * env.num_agents)
             combined = jnp.array(jnp.meshgrid(*meshes)).T.reshape(-1, env.num_agents)
             default_matrix = jnp.full((combined.shape[0], env.num_agents, env.observation_space(env.agents[0]).shape[0]-1), config["AYS_DEFAULT"])
@@ -223,7 +232,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
             # update tings my dude
             # swaps agent id axis and envs so that agent id comes first
-            info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], -1), 0, 1), info)
+            info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], env.num_agents), 0, 1), info)
             done_batch = batchify(done, env.agents, env.num_agents, config["NUM_ENVS"]).squeeze(axis=2)
             transition = EvalTransition(
                 jnp.full((env.num_agents, config["NUM_ENVS"]), done["__all__"].reshape((config["NUM_ENVS"]))),
@@ -247,9 +256,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
         runner_state, trajectory_batch = jax.lax.scan(_eval_step, runner_state, None, config["NUM_EVAL_STEPS"])
 
         # metric handling
-        metric = jax.tree_map(lambda x: x.reshape((config["NUM_EVAL_STEPS"], config["NUM_ENVS"], env.num_agents)),
-                              trajectory_batch.info)
-
+        metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
         metric["update_steps"] = 1  # TODO is this necessary??
 
         def callback(metric):
@@ -269,7 +276,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
             wandb.log(metric_dict)
 
-        # jax.experimental.io_callback(callback, None, metric)
+        # jax.experimental.io_callback(callback, None, metric)  # TODO do we want to use wandb here?
 
         # TODO it does not have a device dim as agents arent pmaped, will that lead to any issues in indexing?
         # below shape is num_eval_steps, num_agents, num_envs, num_actions
@@ -286,12 +293,12 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
         if config["DEFINED_PARAM_START"]:
             # count how many episodes ended
-            eps_ended = jnp.sum(metric["returned_episode"][:, :, 0],
-                                axis=0)  # TODO issue is it only follows the one agent won score
+            eps_ended = jnp.sum(metric["returned_episode"][:, :, 0], axis=0)
+            # TODO issue is it only follows the one agent won score
 
             # then do a logical and between end and win
-            win_number = jnp.sum(
-                jnp.logical_and(metric["returned_won_episode"][:, :, 0], metric["returned_episode"][:, :, 0]), axis=0)
+            win_number = jnp.sum(jnp.logical_and(jnp.logical_or(metric["returned_won_episode"][:, :, 0], metric["returned_won_episode"][:, :, 1]), metric["returned_episode"][:, :, 0]), axis=0)
+            # TODO does this count for both agents win ? or between agents and then and with episode end?
 
             # compare these two values for each env?
             win_ratio = win_number / eps_ended  # TODO add a check to prevent NaNs if 0/0
@@ -301,11 +308,12 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                                                   env.observation_space(env.agents[0]).shape[0]))[:, :, config["MID_INDEX"]]
 
             def plot_end_state_matrix(results):  # TODO fix this ting cus it do not work
-                fig = plt.imshow(results.reshape(config["RESOLUTION"], config["RESOLUTION"]),
-                                 # fig = plt.imshow(jnp.flip(results.reshape(config["RESOLUTION"], config["RESOLUTION"]), axis=0),
+                fig = plt.imshow(jnp.flip(results.reshape(config["RESOLUTION"], config["RESOLUTION"]), axis=0),
+                # fig = plt.imshow(jnp.flip(jnp.rot90(results.reshape(config["RESOLUTION"], config["RESOLUTION"])), axis=0),
+                # fig = plt.imshow(jnp.flip(jnp.flip(results.reshape(config["RESOLUTION"], config["RESOLUTION"]), axis=1), axis=0),
                                  extent=(config["LOWER_BOUND"], config["UPPER_BOUND"],
                                          config["LOWER_BOUND"], config["UPPER_BOUND"]),
-                                 cmap='cividis')
+                                 cmap='mako')
                 label = ["Y Agent", "S Agent"]
                 plt.ylabel(f'{label[config["MID_INDEX"] - 1]} 0')
                 plt.xlabel(f'{label[config["MID_INDEX"] - 1]} 1')
@@ -322,53 +330,55 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                 plt.show()
 
             def plot_matrix_two(coords, results):
-                # values_as_matrix = results.reshape(len(jnp.unique(coords[:, 0])), len(jnp.unique(coords[:, 1])))
-                # print(values_as_matrix)
-                # print(values_as_matrix.shape)
-                # print(coords)
-                # print(coords.shape)
-                # sys.exit()
+                unique_x = np.unique(coords[:, 0])
+                unique_y = np.unique(coords[:, 1])
 
-                plt.pcolormesh(coords[:, 0], coords[:, 1], results[:, jnp.newaxis])
-                # Customize the plot (optional)
-                plt.colorbar(label='Value')  # Add a colorbar to show value legend
-                plt.xlabel('X-axis')
-                plt.ylabel('Y-axis')
-                plt.title('Color Map based on Values')
+                color_map = np.zeros((len(unique_y), len(unique_x)))
+
+                for i in range(len(coords)):
+                    x, y = coords[i]
+                    x_idx = np.where(unique_x == x)[0][0]
+                    y_idx = np.where(unique_y == y)[0][0]
+                    color_map[y_idx, x_idx] = results[i]
+
+                # Create the plot
+                plt.imshow(color_map, extent=(unique_x.min(), unique_x.max(), unique_y.min(), unique_y.max()), cmap="mako")
                 plt.show()
 
-            plot_end_state_matrix(win_ratio)
+            plot_end_state_matrix(win_ratio)  # TODO check axes are correct
             # plot_matrix_two(matrix_vals, win_ratio)
-            # sys.exit()
 
-        def plot_q_differences(input_for_cmap, ayse):
+        def plot_q_differences(input_for_cmap, ayse, agent, title_val, softmax=False):
 
 
-            cmaps = ["rocket", "mako", "mako", "mako", "mako", "mako", "mako", "mako", "mako", "mako"]
+            cmaps = [sns.color_palette("rocket", as_cmap=True),
+                     sns.color_palette("Greens_d", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     ]
             # cmaps = "mako"
             # cmaps = ["ch:s=0.5, r=-0.5", "ch:s=0.5, rot=-0.75"]
             # cmap_range = jnp.linspace(0, 2.3, env.num_agents)
             # cmaps = [sns.cubehelix_palette(start=val, dark=0.1, light=0.9, as_cmap=True) for val in cmap_range]
             fig, ax3d = create_figure_ays(top_down=False)
-            for agent in env.agents:
-                a_ind = env.agent_ids[agent]
-                colour_diff = input_for_cmap[:, a_ind]
-                scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
-                                       c=colour_diff, alpha=0.8, s=1, cmap=cmaps[a_ind])
+            # for agent in env.agents:
+            a_ind = env.agent_ids[agent]
+            colour_diff = input_for_cmap[:, a_ind]
+            scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
+                                   c=colour_diff, alpha=0.8, s=1, cmap=cmaps[a_ind])
             legend1 = ax3d.legend(*scatter.legend_elements(),
-                                  loc="lower left", title="Q Diff")
+                                  loc="upper left", title=title_val)
+            ax3d.set_title(f"Agent {a_ind}, Reward Func: {env.reward_type[a_ind]}")
             ax3d.add_artist(legend1)
-            # plt.show()
-            # sys.exit()
+            # plt.subplots_adjust(bottom=0.2, right=0.8)
 
             return fig
 
         q_max = jnp.max(distribution_logits, axis=2)
         q_avg = jnp.average(distribution_logits, axis=2)
-        q_diff = jnp.abs(q_max - q_avg)
+        q_diff = jax.nn.softmax(jnp.abs(q_max - q_avg), axis=1)
 
-        fig_actions = plot_q_differences(eval_actions, ayse_state)
-        fig_q_diff = plot_q_differences(q_diff, ayse_state)
+        fig_actions = [plot_q_differences(eval_actions, ayse_state, agent, "Actions") for agent in env.agents]
+        fig_q_diff = [plot_q_differences(q_diff, ayse_state, agent, "Logit Diff", softmax=True) for agent in env.agents]
 
         # return {"runner_state": runner_state, "metrics": metric}
         return fig_actions, fig_q_diff

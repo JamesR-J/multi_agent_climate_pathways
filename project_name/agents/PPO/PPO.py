@@ -95,7 +95,7 @@ class PPOAgent:
 
                 def _loss_fn(params, init_hstate, traj_batch, gae, targets):
                     # RERUN NETWORK
-                    _, pi, value, _ = self.network.apply(params,
+                    _, pi, value, _ = self.network.apply(params,  # TODO convert this to train_state.apply_fn()
                                                       init_hstate.squeeze(axis=0),
                                                       (traj_batch.obs,
                                                        traj_batch.done,

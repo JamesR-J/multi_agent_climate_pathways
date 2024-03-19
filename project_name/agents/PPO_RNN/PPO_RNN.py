@@ -65,7 +65,7 @@ class PPO_RNNAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
-        _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)
+        _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)  # TODO should self.network just be trainstate
         last_val = last_val.squeeze()
 
         def _calculate_gae(traj_batch, last_val):

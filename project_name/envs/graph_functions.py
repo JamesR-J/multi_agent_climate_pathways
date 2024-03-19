@@ -67,12 +67,12 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
                   reset=False, ax3d=None, fig3d=None):
     if not reset:
         if ax is None:
-            fig3d = plt.figure(figsize=(10, 8))
+            fig3d = plt.figure(figsize=(12, 8))
             # ax3d = plt3d.Axes3D(fig3d)
             ax3d = fig3d.add_subplot(111, projection="3d")
         else:
-            ax3d = ax
             fig3d = None
+            ax3d = ax
 
     if ticks == True:
         make_3d_ticks_ays(ax3d)
@@ -97,7 +97,7 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]" % Y_scale, )
     # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
     if not top_down:
-        ax3d.set_zlabel("\n\ntotal excess atmospheric carbon\nstock A [GtC]", )
+        ax3d.set_zlabel("\n\ntotal excess atmospheric carbon\nstock A [GtC]")
 
     # Add boundaries to plot
     if plot_boundary:
@@ -123,44 +123,6 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     legend_elements.append(
         Line2D([0], [0], lw=2, label='current state', marker='o', color='w', markerfacecolor='red', markersize=15))
     # ax3d.legend(handles=legend_elements,prop={'size': 14}, bbox_to_anchor=(0.85,.90), fontsize=20,fancybox=True, shadow=True)
-
-    return fig3d, ax3d
-
-
-def create_figure_ricen(top_down, label=None, colors=None, ax=None, ticks=True, plot_boundary=True,
-                  reset=False, ax3d=None, fig3d=None):
-    if not reset:
-        if ax is None:
-            fig3d = plt.figure(figsize=(10, 8))
-            # ax3d = plt3d.Axes3D(fig3d)
-            ax3d = fig3d.add_subplot(111, projection="3d")
-        else:
-            ax3d = ax
-            fig3d = None
-
-    if ticks == True:
-        make_3d_ticks_ricen(ax3d)
-    else:
-        ax3d.set_xticks([])
-        ax3d.set_yticks([])
-        ax3d.set_zticks([])
-
-    azimuth, elevation = 140, 15
-    if top_down:
-        azimuth, elevation = 180, 90
-
-    ax3d.view_init(elevation, azimuth)
-
-    ax3d.set_xlabel("\n\nemissions", )
-    ax3d.set_ylabel("\n\ncapital")
-    if not top_down:
-        ax3d.set_zlabel("\n\nglobal temperature change from initial", )
-
-    # # Add boundaries to plot
-    if plot_boundary:
-        add_boundary(ax3d, sunny_boundaries=["planetary-boundary"], model='ricen', **ays.grid_parameters, **ays.boundary_parameters)
-
-    ax3d.grid(False)
 
     return fig3d, ax3d
 
@@ -320,19 +282,6 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
         formatters = new_formatters
     ax3d.zaxis.set_major_locator(ticker.FixedLocator(locators))
     ax3d.zaxis.set_major_formatter(ticker.FixedFormatter(formatters))
-
-
-def make_3d_ticks_ricen(ax3d, boundaries=None, transformed_formatters=False, S_scale=1e9, Y_scale=1e12, num_a=12, num_y=12,
-                  num_s=12, ):
-    if boundaries is None:
-        boundaries = [None] * 3
-
-    transf = ft.partial(compactification, x_mid=current_state[0])
-    inv_transf = ft.partial(inv_compactification, x_mid=current_state[0])
-
-    ax3d.set_xlim(0, 20)
-    ax3d.set_ylim(0, 750)
-    ax3d.set_zlim(-10, 15)
 
 
 @np.vectorize
