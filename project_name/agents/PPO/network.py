@@ -10,13 +10,13 @@ from typing import Sequence, NamedTuple, Any, Dict
 import distrax
 
 
-class ActorCriticRNN(nn.Module):
+class ActorCriticRNN(nn.Module):  # TODO change this and remove RNN
     action_dim: Sequence[int]
-    activation: str = "tanh"
     config: Dict
+    activation: str = "tanh"
 
     @nn.compact
-    def __call__(self, hidden, x):
+    def __call__(self, x):
         if self.activation == "relu":
             activation = nn.relu
         else:
@@ -37,4 +37,4 @@ class ActorCriticRNN(nn.Module):
         critic = activation(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
 
-        return hidden, pi, jnp.squeeze(critic, axis=-1)
+        return pi, jnp.squeeze(critic, axis=-1), actor_mean

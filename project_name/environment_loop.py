@@ -19,12 +19,13 @@ import orbax
 from flax.training import orbax_utils
 
 
-def run_train(config, checkpoint_manager, save_args):
+def run_train(config, checkpoint_manager, orbax_checkpointer=None, chkpt_save_path=None):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
                           homogeneous=config["HOMOGENEOUS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
+    config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * 2  # TODO added in for linear schedule dodgyness
     config["MINIBATCH_SIZE"] = (config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"])
     config["CLIP_EPS"] = (config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"])
 
@@ -37,6 +38,10 @@ def run_train(config, checkpoint_manager, save_args):
             actor = MultiAgent(env=env, config=config, key=key)
         train_state, hstate = actor.initialise()
 
+        if chkpt_save_path is not None:
+            target = {'model': train_state}  # must match the input dict
+            train_state = orbax_checkpointer.restore(chkpt_save_path, item=target)["model"]
+
         # reset_key = jrandom.split(key, config["NUM_ENVS"])
         reset_key = jrandom.split(key, config["NUM_ENVS"]).reshape(config["NUM_DEVICES"],
                                                                    config["NUM_ENVS"] // config["NUM_DEVICES"], -1)
@@ -48,9 +53,9 @@ def run_train(config, checkpoint_manager, save_args):
         runner_state = (train_state, env_state, obs,
                         jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool), hstate, graph_state, key)
 
-        # def _run_update(update_runner_state, unused):
-        update_runner_state = runner_state, 0
-        for step in range(config["NUM_UPDATES"] - 1400):
+        def _run_update(update_runner_state, unused):
+        # update_runner_state = runner_state, 0
+        # for update_steps in range(config["NUM_UPDATES"] - 1000):
             runner_state, update_steps = update_runner_state
 
             def _run_episode_step(runner_state, unused):
@@ -110,7 +115,9 @@ def run_train(config, checkpoint_manager, save_args):
             # metric handling
             metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
 
-            def callback(metric):
+            def callback(metric, train_state):
+                # if metric["update_steps"] >= 1000 and metric["update_steps"] <= 1250:  # TODO comment this out when don't want it
+                #     checkpoint_manager.save(metric["update_steps"], train_state)
                 metric_dict = {
                     # the metrics have an agent dimension, but this is identical
                     # for all agents so index into the 0th item of that dimension. not true anymore as hetero babY
@@ -128,17 +135,17 @@ def run_train(config, checkpoint_manager, save_args):
                 wandb.log(metric_dict)
 
             metric["update_steps"] = update_steps
-            jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric, train_state)
 
-            if step >= 800 and step <= 850:
-                checkpoint_manager.save(step, train_state)
+            # if update_steps >= 800 and update_steps <= 1250:
+            #     checkpoint_manager.save(update_steps, train_state)
 
             update_steps = update_steps + 1
 
-            update_runner_state = ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps)
-            # return ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps), metric
+            # update_runner_state = ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps)
+            return ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps), metric
 
-        # runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])
+        runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])
 
         return {"runner_state": runner_state, "metrics": metric}
 
@@ -352,7 +359,14 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
 
             cmaps = [sns.color_palette("rocket", as_cmap=True),
-                     sns.color_palette("Greens_d", as_cmap=True),
+                     sns.cubehelix_palette(start=2, rot=0, dark=0, light=0.9, reverse=True, as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
+                     sns.color_palette("mako", as_cmap=True),
                      sns.color_palette("mako", as_cmap=True),
                      ]
             # cmaps = "mako"
@@ -360,9 +374,14 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
             # cmap_range = jnp.linspace(0, 2.3, env.num_agents)
             # cmaps = [sns.cubehelix_palette(start=val, dark=0.1, light=0.9, as_cmap=True) for val in cmap_range]
             fig, ax3d = create_figure_ays(top_down=False)
-            # for agent in env.agents:
             a_ind = env.agent_ids[agent]
             colour_diff = input_for_cmap[:, a_ind]
+            if softmax:
+                # colour_diff = jax.nn.softmax(colour_diff)
+                min_value = 0
+                max_value = jnp.max(colour_diff)
+                colour_diff = (colour_diff - min_value) / (max_value - min_value)
+
             scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
                                    c=colour_diff, alpha=0.8, s=1, cmap=cmaps[a_ind])
             legend1 = ax3d.legend(*scatter.legend_elements(),
@@ -375,7 +394,11 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
         q_max = jnp.max(distribution_logits, axis=2)
         q_avg = jnp.average(distribution_logits, axis=2)
-        q_diff = jax.nn.softmax(jnp.abs(q_max - q_avg), axis=1)
+        q_diff = jnp.abs(q_max - q_avg)
+
+        min_value = 0
+        max_value = jnp.max(q_diff)
+        q_diff = (q_diff - min_value) / (max_value - min_value)
 
         fig_actions = [plot_q_differences(eval_actions, ayse_state, agent, "Actions") for agent in env.agents]
         fig_q_diff = [plot_q_differences(q_diff, ayse_state, agent, "Logit Diff", softmax=True) for agent in env.agents]

@@ -16,10 +16,9 @@ class PPO_RNNAgent:
                  config):
         self.config = config
         self.env = env
-        self.network = ActorCriticRNN(env.action_space[env.agents[0]].n, config=config)
-        init_x = (jnp.zeros((1, config["NUM_ENVS"], env.observation_space[env.agents[0]].shape[0])),
+        self.network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config)
+        init_x = (jnp.zeros((1, config["NUM_ENVS"], env.observation_space(env.agents[0]).shape[0])),
                   jnp.zeros((1, config["NUM_ENVS"])),
-                  # jnp.zeros((1, config["NUM_ENVS"], env.action_space[env.agents[0]].n)),
                   )
         key, _key = jrandom.split(key)
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
@@ -27,8 +26,11 @@ class PPO_RNNAgent:
         self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"],
                                                        config["GRU_HIDDEN_DIM"])  # TODO do we need both?
 
-        def linear_schedule(count):  # TODO put this somehewre better
-            frac = (1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"])
+        def linear_schedule(count):  # TODO put this somewhere better and think this is right?
+            if config["SPLIT_TRAIN"]:
+                count += config["NUM_UPDATES"]
+            frac = (1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["TOTAL_UPDATES"])
+            # frac = 1 - count // 16 / num_updates
             return config["LR"] * frac
 
         if config["ANNEAL_LR"]:
@@ -49,12 +51,12 @@ class PPO_RNNAgent:
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
-        hstate, pi, value = self.network.apply(train_state.params, hstate, ac_in)
+        hstate, pi, value, action_logits = train_state.apply_fn(train_state.params, hstate, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
         log_prob = pi.log_prob(action)
 
-        return hstate, action, log_prob, value, key  # TODO do we need to return key?
+        return hstate, action, log_prob, value, key, action_logits, _key  # TODO do we need to return key?
 
     @partial(jax.jit, static_argnums=(0))
     def update(self, runner_state, traj_batch):
@@ -65,7 +67,7 @@ class PPO_RNNAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
-        _, _, last_val = self.network.apply(train_state.params, hstate, ac_in)  # TODO should self.network just be trainstate
+        _, _, last_val, _ = train_state.apply_fn(train_state.params, hstate, ac_in)
         last_val = last_val.squeeze()
 
         def _calculate_gae(traj_batch, last_val):
@@ -96,7 +98,7 @@ class PPO_RNNAgent:
 
                 def _loss_fn(params, init_hstate, traj_batch, gae, targets):
                     # RERUN NETWORK
-                    _, pi, value = self.network.apply(params,
+                    _, pi, value, _ = train_state.apply_fn(params,
                                                       init_hstate.squeeze(axis=0),
                                                       (traj_batch.obs,
                                                        traj_batch.done,

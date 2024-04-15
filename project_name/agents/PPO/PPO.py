@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from typing import Any
 import jax.random as jrandom
 from functools import partial
-from project_name.agents.PPO_RNN.network import ActorCriticRNN, ScannedRNN  # TODO sort out this class import ting
+from project_name.agents.PPO.network import ActorCriticRNN  # TODO sort out this class import ting
 import optax
 from flax.training.train_state import TrainState
 
@@ -21,12 +21,15 @@ class PPOAgent:
                   jnp.zeros((1, config["NUM_ENVS"])),
                   )
         key, _key = jrandom.split(key)
-        init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
-        self.network_params = self.network.init(_key, init_hstate, init_x)
-        self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"],
-                                                       config["GRU_HIDDEN_DIM"])  # TODO do we need both?
+        # init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])  # TODO remove this
 
-        def linear_schedule(count):  # TODO put this somehewre better
+        # self.network_params = self.network.init(_key, init_hstate, init_x)
+        self.network_params = self.network.init(_key, init_x)
+        # self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"],
+        #                                                config["GRU_HIDDEN_DIM"])  # TODO do we need both?
+        self.init_hstate = jnp.zeros((config["NUM_ENVS"], config["GRU_HIDDEN_DIM"]))
+
+        def linear_schedule(count):  # TODO put this somewhere better
             frac = (1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"])
             return config["LR"] * frac
 
@@ -48,7 +51,7 @@ class PPOAgent:
 
     @partial(jax.jit, static_argnums=(0))
     def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
-        hstate, pi, value, action_logits = self.network.apply(train_state.params, hstate, ac_in)
+        pi, value, action_logits = train_state.apply_fn(train_state.params, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
         log_prob = pi.log_prob(action)
@@ -64,7 +67,7 @@ class PPOAgent:
                  last_done[jnp.newaxis, :],
                  # avail_actions[jnp.newaxis, :],
                  )
-        _, _, last_val, _ = self.network.apply(train_state.params, hstate, ac_in)
+        _, last_val, _ = train_state.apply_fn(train_state.params, ac_in)
         last_val = last_val.squeeze()
 
         def _calculate_gae(traj_batch, last_val):
@@ -93,10 +96,9 @@ class PPOAgent:
             def _update_minbatch(train_state, batch_info):
                 init_hstate, traj_batch, advantages, targets = batch_info
 
-                def _loss_fn(params, init_hstate, traj_batch, gae, targets):
+                def _loss_fn(params, traj_batch, gae, targets):
                     # RERUN NETWORK
-                    _, pi, value, _ = self.network.apply(params,  # TODO convert this to train_state.apply_fn()
-                                                      init_hstate.squeeze(axis=0),
+                    pi, value, _ = train_state.apply_fn(params,
                                                       (traj_batch.obs,
                                                        traj_batch.done,
                                                        # traj_batch.avail_actions
@@ -132,7 +134,7 @@ class PPOAgent:
                     return total_loss, (value_loss, loss_actor, entropy)
 
                 grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                total_loss, grads = grad_fn(train_state.params, init_hstate, traj_batch, advantages, targets)
+                total_loss, grads = grad_fn(train_state.params, traj_batch, advantages, targets)
                 train_state = train_state.apply_gradients(grads=grads)
                 return train_state, total_loss
 

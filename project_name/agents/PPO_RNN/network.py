@@ -11,6 +11,7 @@ import distrax
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+
 class ScannedRNN(nn.Module):
     @functools.partial(nn.scan,
                        variable_broadcast="params",
@@ -44,7 +45,6 @@ class ActorCriticRNN(nn.Module):
 
     @nn.compact
     def __call__(self, hidden, x):
-        # obs, dones, avail_actions = x
         obs, dones = x
         embedding = nn.Dense(128, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0))(obs)
         embedding = nn.relu(embedding)
@@ -56,13 +56,11 @@ class ActorCriticRNN(nn.Module):
             embedding)
         actor_mean = nn.relu(actor_mean)
         actor_mean = nn.Dense(self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0))(actor_mean)
-        # unavail_actions = 1 - avail_actions
-        action_logits = actor_mean  #  - (unavail_actions * 1e10)
 
-        pi = distrax.Categorical(logits=action_logits)
+        pi = distrax.Categorical(logits=actor_mean)
 
         critic = nn.Dense(128, kernel_init=orthogonal(2), bias_init=constant(0.0))(embedding)
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
 
-        return hidden, pi, jnp.squeeze(critic, axis=-1), action_logits
+        return hidden, pi, jnp.squeeze(critic, axis=-1), actor_mean
