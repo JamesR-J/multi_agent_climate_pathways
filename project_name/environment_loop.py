@@ -19,13 +19,13 @@ import orbax
 from flax.training import orbax_utils
 
 
-def run_train(config, checkpoint_manager, orbax_checkpointer=None, chkpt_save_path=None):
+def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_input=None):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
                           homogeneous=config["HOMOGENEOUS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
-    config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * 2  # TODO added in for linear schedule dodgyness
+    config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * config["NUM_LOOPS"]  # TODO added in for linear schedule dodgyness
     config["MINIBATCH_SIZE"] = (config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"])
     config["CLIP_EPS"] = (config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"])
 
@@ -38,15 +38,12 @@ def run_train(config, checkpoint_manager, orbax_checkpointer=None, chkpt_save_pa
             actor = MultiAgent(env=env, config=config, key=key)
         train_state, hstate = actor.initialise()
 
-        if chkpt_save_path is not None:
-            target = {'model': train_state}  # must match the input dict
-            train_state = orbax_checkpointer.restore(chkpt_save_path, item=target)["model"]
+        if train_state_input is not None:
+            train_state = train_state_input
 
-        # reset_key = jrandom.split(key, config["NUM_ENVS"])
         reset_key = jrandom.split(key, config["NUM_ENVS"]).reshape(config["NUM_DEVICES"],
                                                                    config["NUM_ENVS"] // config["NUM_DEVICES"], -1)
 
-        # obs, env_state, graph_state = jax.vmap(env.reset, in_axes=(0,))(reset_key)
         vreset = jax.jit(jax.vmap(env.reset, in_axes=(0,), out_axes=(0, 0, 0), axis_name="batch_axis"))
         obs, env_state, graph_state = jax.pmap(vreset, out_axes=(0, 0, 0), axis_name="device_axis")(reset_key)
 
@@ -123,7 +120,7 @@ def run_train(config, checkpoint_manager, orbax_checkpointer=None, chkpt_save_pa
                     # for all agents so index into the 0th item of that dimension. not true anymore as hetero babY
                     "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),  # This always follows the PB following agent_0
                     "win_rate": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
-                    "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"]
+                    "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"] + env_step_count_init
                 }
 
                 for agent in env.agents:  # TODO this is cool but win rate is defined by only green fixed point so should be the same for all agents anyway??
@@ -137,12 +134,8 @@ def run_train(config, checkpoint_manager, orbax_checkpointer=None, chkpt_save_pa
             metric["update_steps"] = update_steps
             jax.experimental.io_callback(callback, None, metric, train_state)
 
-            # if update_steps >= 800 and update_steps <= 1250:
-            #     checkpoint_manager.save(update_steps, train_state)
-
             update_steps = update_steps + 1
 
-            # update_runner_state = ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps)
             return ((train_state, env_state, last_obs, last_done, hstate, graph_state, key), update_steps), metric
 
         runner_state, metric = jax.lax.scan(_run_update, (runner_state, 0), None, config["NUM_UPDATES"])

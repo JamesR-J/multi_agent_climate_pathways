@@ -54,6 +54,9 @@ _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB"], "which reward functions 
 # _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "max_Y"], "which reward functions to use")
 # _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB", "max_A"], "which reward functions to use")
 
+_SPLIT_TRAIN = flags.DEFINE_boolean("split_train", False, "whether to run looped training or not")
+_NUM_LOOPS = flags.DEFINE_integer("num_loops", 2, "number of loops for split train")
+
 _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 # TODO sort this out so have one total config or something, is a little dodge atm
 
@@ -66,17 +69,15 @@ def main(_):
     # logging.info("FLAGS B")
     tf.config.experimental.set_visible_devices([], "GPU")
 
-    # TODO convert the agents to train_state.apply_fn()
-
     # 2441, num_steps, num_envs, num_agents
     # 3  =   5.60 GB
     # 4  =   8.60 GB
-    # 5  =  12.30 GB
-    # 6  =  16.57 GB   # 17.91  # 27.60
-    # 7  =
-    # 8  =  26.86 GB
+    # 5  =  12.30 GB   # 10.44
+    # 6  =  16.57 GB   # 13.85   # 9.27
+    # 7  =             # 17.72              #  8.91
+    # 8  =  26.86 GB   # 22.03   # 14.72    #  11.07   #
     # 9  = ~31.00 GB
-    # 10 =  39.63 GB
+    # 10 =  39.63 GB             #  21.37   # 16.06
 
     with open("project_name/ippo_ff.yaml", "r") as file:
         config = yaml.safe_load(file)
@@ -85,6 +86,8 @@ def main(_):
     config["HOMOGENEOUS"] = _HOMOGENEOUS.value
     config["REWARD_TYPE"] = _REWARD_TYPE.value
     config["NEW_REWARD_TYPE"] = _REWARD_TYPE.value  # TODO added this for some reason as wandb struggling
+    config["SPLIT_TRAIN"] = _SPLIT_TRAIN.value
+    config["NUM_LOOPS"] = _NUM_LOOPS.value
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
@@ -119,7 +122,7 @@ def main(_):
     if config["RUN_TRAIN"]:
         ### original that can uncomment out
         # with jax.disable_jit(disable=_DISABLE_JIT.value):
-        #     train = jax.jit(environment_loop.run_train(config, checkpoint_manager))  # TODO should this be in a vmap key or not, like jaxmarl? what is more efficient
+        #     train = jax.jit(environment_loop.run_train(config, checkpoint_manager))
         #     out = jax.block_until_ready(train())
         #
         # chkpt = {'model': out["runner_state"][0][0]}
@@ -127,21 +130,24 @@ def main(_):
         # orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
 
         #### new stuff below to look at, copied the run loop twice so it would work for longer?
-        config["TOTAL_TIMESTEPS"] = config["TOTAL_TIMESTEPS"] // 2  # TODO can automate this with a config rather than hardcoding it?
-        with jax.disable_jit(disable=_DISABLE_JIT.value):
-            train = environment_loop.run_train(config, checkpoint_manager)
-            out = jax.block_until_ready(train())
+        config["TOTAL_TIMESTEPS"] = config["TOTAL_TIMESTEPS"] // config["NUM_LOOPS"]  # TODO can automate this with a config rather than hardcoding it?
+        env_step_count_init = 0
+        train_state_input = None
+        for loop in range(config["NUM_LOOPS"]):
+            with jax.disable_jit(disable=_DISABLE_JIT.value):
+                train = jax.jit(environment_loop.run_train(config,
+                                                           checkpoint_manager,
+                                                           env_step_count_init=env_step_count_init,
+                                                           train_state_input=train_state_input))
 
-        chkpt = {'model': out["runner_state"][0][0]}
-        save_args = orbax_utils.save_args_from_target(chkpt)
-        orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
+                out = jax.block_until_ready(train())
+                env_step_count_init = (out["runner_state"][1] * (loop + 1)) * config["NUM_ENVS"] * config["NUM_STEPS"]
+                train_state_input = out["runner_state"][0][0]
 
-        with jax.disable_jit(disable=_DISABLE_JIT.value):
-            train = environment_loop.run_train(config, checkpoint_manager, orbax_checkpointer, chkpt_save_path)
-            out = jax.block_until_ready(train())
-
-        # delete the original checkpoint in the folder
-        shutil.rmtree(chkpt_save_path)
+        # env_step_count_init = out["runner_state"][1] * config["NUM_ENVS"] * config["NUM_STEPS"]
+        # with jax.disable_jit(disable=_DISABLE_JIT.value):
+        #     train = jax.jit(environment_loop.run_train(config, checkpoint_manager, env_step_count_init=env_step_count_init, train_state_input=out["runner_state"][0][0]))
+        #     out = jax.block_until_ready(train())
 
         chkpt = {'model': out["runner_state"][0][0]}
         save_args = orbax_utils.save_args_from_target(chkpt)
