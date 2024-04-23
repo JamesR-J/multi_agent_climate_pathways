@@ -35,23 +35,24 @@ def get_config():
 
 def sweep_SWEEP():
     seed_list = [28, 10, 98, 44, 22, 68]
-    homogeneous = [False, True]
-    # homogeneous = [True]
+    # seed_list = [28, 68]
+    # homogeneous = [False, True]
+    homogeneous = [False]
     # num_agents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    num_agents = [4, 5, 6, 7, 8, 9, 10]
-    reward_function = ['"PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB"']
-    # reward_function = ['"PB", "PB", "max_A"', '"PB", "max_A", "max_A"']
-    # reward_function = ['"PB", "max_Y", "max_Y"', '"PB", "PB", "max_Y"',
-    #                    '"PB", "max_A", "max_A"', '"PB", "PB", "max_A"',
-    #                    '"PB", "max_Y", "max_A"', '"PB", "PB", "PB"']  # TODO assertion for length of this and num agents innit
-    num_loops = [4]
+    num_agents = [3]
+    # reward_function = ['"PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB", "PB"']
+    # reward_function = ['"PB", "PB"', '"PB", "max_A"', '"PB", "max_Y"']
+    reward_function = ['"PB", "max_Y", "max_Y"', '"PB", "PB", "max_Y"',
+                       '"PB", "max_A", "max_A"', '"PB", "PB", "max_A"',
+                       '"PB", "max_Y", "max_A"', '"PB", "PB", "PB"']  # TODO assertion for length of this and num agents innit
+    num_loops = [20]
 
     combinations = itertools.product(seed_list, homogeneous, num_agents, reward_function, num_loops)
     result = [{"seed": seed,
                "homogeneous": homo,
                "num_agents": agent,
                "reward_type": reward,
-               "split_train": True,
+               "split_train": False,
                "num_loops": num_loops,
                "disable_jit": False} for seed, homo, agent, reward, num_loops in combinations]
 

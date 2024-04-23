@@ -25,6 +25,12 @@ class ScannedRNN(nn.Module):
         rnn_state = carry
         ins, resets = x
 
+        print(resets.shape)
+        print(ins.shape)
+        print(rnn_state.shape)
+        sys.exit()
+
+
         rnn_state = jnp.where(resets[:, jnp.newaxis],
                               self.initialize_carry(*rnn_state.shape),
                               rnn_state,
@@ -50,6 +56,8 @@ class ActorCriticRNN(nn.Module):
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
+        print(embedding.shape)
+        print(dones.shape)
         hidden, embedding = ScannedRNN()(hidden, rnn_in)
 
         actor_mean = nn.Dense(self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0))(

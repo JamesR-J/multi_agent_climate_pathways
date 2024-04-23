@@ -270,12 +270,11 @@ class AYS_Environment(object):
         # reward function innit
         rewards = self._get_rewards(env_state.ayse)
 
-        # print(rewards)
-        # for agent in self.agents:  # TODO is this okay idk? do we want expected final reward
-        #     new_reward = jax.lax.select(dones[agent], self._calculate_expected_final_reward(rewards, agent, step), 0)
-        #     rewards = rewards.at[self.agent_ids[agent]].add(new_reward)
-        # print(rewards)
-        # sys.exit()
+        for agent in self.agents:  # TODO bit dodge but works out okay
+            new_reward = jax.lax.select(jnp.logical_and(dones[agent], env_state.terminal),
+                                        self._calculate_expected_final_reward(rewards[agent], graph_state),
+                                        0.0)
+            rewards[agent] += new_reward
 
         # add infos
         pre_dict_done_causation = jax.vmap(self._done_causation)(new_state, pre_dict_dones)
@@ -420,30 +419,22 @@ class AYS_Environment(object):
 
         return {agent: rewards[self.agent_ids[agent]] for agent in self.agents}
 
-    # @partial(jax.jit, static_argnums=(0,))
-    # def _calculate_expected_final_reward(self, rewards, agent, step):
-    #     """
-    #     Get the reward in the last state, expecting from now on always default.
-    #     This is important since we break up simulation at final state, but we do not want the agent to
-    #     find trajectories that are close (!) to final state and stay there, since this would
-    #     result in a higher total reward.
-    #     """
-    #     remaining_steps = self.max_steps - step
-    #
-    #     def _update_future_reward(runner, unused):
-    #         reward, steppa = runner
-    #         step_reward = jax.lax.select(steppa <= remaining_steps, (jnp.power(self.gamma, steppa) * rewards[agent]), jnp.array(0.0))
-    #         result = runner + step_reward  # TODO issue with comparison types, do we need this?
-    #         steppa = steppa + 1
-    #         return (result, steppa)
-    #
-    #     discounted_future_reward = jax.lax.scan(_update_future_reward, (jnp.array(0.0), 0.0), None, self.max_steps)
-    #     # for i in range(remaining_steps):
-    #     #     discounted_future_reward += self.gamma ** i * rewards[self.agent_ids[agent]]
-    #     print(discounted_future_reward)
-    #     sys.exit()
-    #
-    #     return discounted_future_reward
+    @partial(jax.jit, static_argnums=(0,))
+    def _calculate_expected_final_reward(self, rewards, graph_state):
+        """
+        Get the reward in the last state, expecting from now on always default.
+        This is important since we break up simulation at final state, but we do not want the agent to
+        find trajectories that are close (!) to final state and stay there, since this would
+        result in a higher total reward.
+        """
+        # matrix of the adjustment up to max_steps, then replace averything above remaining steps with zeros
+        # remaining_steps = self.max_steps - step
+        multi_mat = jnp.flip(jnp.where(graph_state > 0, 0.0, 1.0)[:, 0, 0])
+        total_rewards = rewards * self.gamma ** jnp.arange(self.max_steps)
+        total_rewards *= multi_mat
+        discounted_future_reward = jnp.sum(total_rewards)
+
+        return discounted_future_reward
 
     @partial(jax.jit, static_argnums=(0,))
     def _compactification(self, x, x_mid):
@@ -829,9 +820,9 @@ def example():
     for step in range(200):
         key, key_reset, key_act, key_step = jax.random.split(key, 4)
 
-        fig = env.render(graph_states)
-        plt.savefig(f"project_name/images/{step}.png")
-        plt.close()
+        # fig = env.render(graph_states)
+        # plt.savefig(f"project_name/images/{step}.png")
+        # plt.close()
         # print("obs:", obs)
 
         # Sample random actions.
@@ -846,3 +837,8 @@ def example():
         # print(state)
         #
         # print("reward:", reward["agent_0"])
+
+
+if __name__ == "__main__":
+    # with jax.disable_jit():
+        example()

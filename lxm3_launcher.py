@@ -22,14 +22,14 @@ _LAUNCH_ON_CLUSTER = flags.DEFINE_boolean(
 _SINGULARITY_CONTAINER = flags.DEFINE_string(
     "container", None, "Path to singularity container"
 )
-_EXP_NAME = flags.DEFINE_string("exp_name", "new_rnn_coop_tests", "Name of experiment")
+_EXP_NAME = flags.DEFINE_string("exp_name", "new_rnn_comp_tests", "Name of experiment")
 _ENTRYPOINT = flags.DEFINE_string("entrypoint", None, "Entrypoint for experiment")
 
 _SWEEP = flags.DEFINE_string("sweep", "SWEEP", "Name of the sweep")
 # _SWEEP = flags.DEFINE_string("sweep", None, "Name of the sweep")
 
-_SWEEP_INDEX = flags.DEFINE_string("sweep_index", None, "Index of configuration in the sweep")
-# _SWEEP_INDEX = flags.DEFINE_string("sweep_index", "0", "Index of configuration in the sweep")
+# _SWEEP_INDEX = flags.DEFINE_string("sweep_index", None, "Index of configuration in the sweep")
+_SWEEP_INDEX = flags.DEFINE_string("sweep_index", "0", "Index of configuration in the sweep")
 
 _WANDB_GROUP = flags.DEFINE_string("wandb_group", "{xid}_{name}", "wandb group")
 _WANDB_PROJECT = flags.DEFINE_string("wandb_project", "multi_agent_climate_pathways",
@@ -81,7 +81,7 @@ def main(_):
             orbax_dir = "/cluster/project0/orbax"
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=8 * xm.Hr,  # 48 is max
+                walltime=24 * xm.Hr,  # 48 is max
                 extra_directives=["-l gpu_type=rtx4090"],
                 # extra_directives=["-l gpu_type=rtx4090 -pe gpu 3"],  # TODO allows specifying multiple GPUS
                 # extra_directives=["-l gpu_type=gtx1080ti"],  # TODO for beaker  https://hpc.cs.ucl.ac.uk/gpus/

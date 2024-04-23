@@ -120,34 +120,27 @@ def main(_):
     checkpoint_manager = None
 
     if config["RUN_TRAIN"]:
-        ### original that can uncomment out
-        # with jax.disable_jit(disable=_DISABLE_JIT.value):
-        #     train = jax.jit(environment_loop.run_train(config, checkpoint_manager))
-        #     out = jax.block_until_ready(train())
-        #
-        # chkpt = {'model': out["runner_state"][0][0]}
-        # save_args = orbax_utils.save_args_from_target(chkpt)
-        # orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
+        if config["SPLIT_TRAIN"]:
+            #### new stuff below to look at, copied the run loop twice so it would work for longer?
+            config["TOTAL_TIMESTEPS"] = config["TOTAL_TIMESTEPS"] // config["NUM_LOOPS"]  # TODO can automate this with a config rather than hardcoding it?
+            env_step_count_init = 0
+            train_state_input = None
+            for loop in range(config["NUM_LOOPS"]):
+                with jax.disable_jit(disable=_DISABLE_JIT.value):
+                    train = jax.jit(environment_loop.run_train(config,
+                                                               checkpoint_manager,
+                                                               env_step_count_init=env_step_count_init,
+                                                               train_state_input=train_state_input))
 
-        #### new stuff below to look at, copied the run loop twice so it would work for longer?
-        config["TOTAL_TIMESTEPS"] = config["TOTAL_TIMESTEPS"] // config["NUM_LOOPS"]  # TODO can automate this with a config rather than hardcoding it?
-        env_step_count_init = 0
-        train_state_input = None
-        for loop in range(config["NUM_LOOPS"]):
+                    out = jax.block_until_ready(train())
+                    env_step_count_init = (out["runner_state"][1] * (loop + 1)) * config["NUM_ENVS"] * config["NUM_STEPS"]
+                    train_state_input = out["runner_state"][0][0]
+
+        else:
+            ## original that can uncomment out
             with jax.disable_jit(disable=_DISABLE_JIT.value):
-                train = jax.jit(environment_loop.run_train(config,
-                                                           checkpoint_manager,
-                                                           env_step_count_init=env_step_count_init,
-                                                           train_state_input=train_state_input))
-
+                train = jax.jit(environment_loop.run_train(config, checkpoint_manager))
                 out = jax.block_until_ready(train())
-                env_step_count_init = (out["runner_state"][1] * (loop + 1)) * config["NUM_ENVS"] * config["NUM_STEPS"]
-                train_state_input = out["runner_state"][0][0]
-
-        # env_step_count_init = out["runner_state"][1] * config["NUM_ENVS"] * config["NUM_STEPS"]
-        # with jax.disable_jit(disable=_DISABLE_JIT.value):
-        #     train = jax.jit(environment_loop.run_train(config, checkpoint_manager, env_step_count_init=env_step_count_init, train_state_input=out["runner_state"][0][0]))
-        #     out = jax.block_until_ready(train())
 
         chkpt = {'model': out["runner_state"][0][0]}
         save_args = orbax_utils.save_args_from_target(chkpt)
