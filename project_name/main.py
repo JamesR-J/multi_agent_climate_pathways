@@ -26,7 +26,7 @@ from flax.training.train_state import TrainState
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
-_CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load from checkpoint path")
+# _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "single_save_coop_agent_sweep_11", "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "num_agents=7/coop_sweep_1710169124442_39", "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "comp_sweep/num_agents=3/comp_sweep_1710354370386_33", "whether to load from checkpoint path")
@@ -40,6 +40,10 @@ _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "comp_sweep/num_agents=3/comp_sweep_1710354370386_34", "whether to load from checkpoint path")  # "PB, PB, max_A"
 
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "single_agent_test/num_agents=1/single_agent_test_1711020058093_1/1099/default", "whether to load from checkpoint path")  # single agent crash test
+
+_CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=3/new_rnn_comp_tests_1713785465938_21", "whether to load from checkpoint path")  # "PB, max_A, max_A" seed:44
+# _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=2/new_rnn_comp_tests_1713785448397_9", "whether to load from checkpoint path")  # "PB, max_Y" seed:44
+# _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=2/new_rnn_comp_tests_1713785448397_10", "whether to load from checkpoint path")  # "PB, PB" seed:44
 
 _SEED = flags.DEFINE_integer("seed", 44, "Random seed")
 
@@ -91,26 +95,26 @@ def main(_):
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
-    wandb.init(config=config)
-
-    chkpt_dir = os.path.abspath("orbax_checkpoints")
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-
-    file_name = os.environ["WANDB_NAME"]
-    if _CHKPT_LOAD_PATH.value is None:
-        chkpt_name = f'{os.environ["WANDB_RUN_GROUP"]}/num_agents={config["NUM_AGENTS"]}/{file_name}'
-    else:
-        file_name = _CHKPT_LOAD_PATH.value.split('/')[-1]
-        chkpt_name = _CHKPT_LOAD_PATH.value
-    chkpt_save_path = f"{chkpt_dir}/{chkpt_name}"
-
+    # wandb.init(config=config)
+    #
+    # chkpt_dir = os.path.abspath("orbax_checkpoints")
+    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    #
+    # file_name = os.environ["WANDB_NAME"]
+    # if _CHKPT_LOAD_PATH.value is None:
+    #     chkpt_name = f'{os.environ["WANDB_RUN_GROUP"]}/num_agents={config["NUM_AGENTS"]}/{file_name}'
+    # else:
+    #     file_name = _CHKPT_LOAD_PATH.value.split('/')[-1]
+    #     chkpt_name = _CHKPT_LOAD_PATH.value
+    # chkpt_save_path = f"{chkpt_dir}/{chkpt_name}"
+    #
     config["NUM_DEVICES"] = len(jax.local_devices())
-    logging.info(f"There are {config['NUM_DEVICES']} GPUs")
-
-    if os.environ["LAUNCH_ON_CLUSTER"] == "True":  # it converts boolean to a string
-        copy_to_path = os.path.abspath("../../home/jruddjon/lxm3-staging")  # TODO make this applicable to myriad or beaker
-    else:
-        copy_to_path = os.path.abspath("../../home/jamesrj_desktop/PycharmProjects/multi_agent_climate_pathways")
+    # logging.info(f"There are {config['NUM_DEVICES']} GPUs")
+    #
+    # if os.environ["LAUNCH_ON_CLUSTER"] == "True":  # it converts boolean to a string
+    #     copy_to_path = os.path.abspath("../../home/jruddjon/lxm3-staging")  # TODO make this applicable to myriad or beaker
+    # else:
+    #     copy_to_path = os.path.abspath("../../home/jamesrj_desktop/PycharmProjects/multi_agent_climate_pathways")
 
     # chkpt = {'model': TrainState(step=0, apply_fn=lambda _: None, params={}, tx={}, opt_state={})}  # TODO re add back in this and the two below
     # save_args = orbax_utils.save_args_from_target(chkpt)
@@ -142,26 +146,26 @@ def main(_):
                 train = jax.jit(environment_loop.run_train(config, checkpoint_manager))
                 out = jax.block_until_ready(train())
 
-        chkpt = {'model': out["runner_state"][0][0]}
-        save_args = orbax_utils.save_args_from_target(chkpt)
-        orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
-        shutil.copytree(chkpt_save_path, f"{copy_to_path}/orbax_checkpoints/{chkpt_name}")
-        #### end of the new section
+        # chkpt = {'model': out["runner_state"][0][0]}
+        # save_args = orbax_utils.save_args_from_target(chkpt)
+        # orbax_checkpointer.save(chkpt_save_path, chkpt, save_args=save_args)
+        # shutil.copytree(chkpt_save_path, f"{copy_to_path}/orbax_checkpoints/{chkpt_name}")
+        # #### end of the new section
 
-    if config["RUN_EVAL"]:
-        if not config["RUN_TRAIN"]:
-            shutil.copytree(f"{copy_to_path}/orbax_checkpoints/{chkpt_name}", chkpt_save_path)
-        with jax.disable_jit(disable=_DISABLE_JIT.value):
-            eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=4)  # config["NUM_ENVS"])
-            fig_actions, fig_q_diff = jax.block_until_ready(eval())
-            directory = f"{copy_to_path}/figures/{chkpt_name}"
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-            for agent in range(config["NUM_AGENTS"]):
-                fig_actions[agent].savefig(
-                    f"{directory}/{file_name}_agent-{agent}_actions.png", bbox_inches="tight")
-                fig_q_diff[agent].savefig(
-                    f"{directory}/{file_name}_agent-{agent}_q-diff.png", bbox_inches='tight')
+    # if config["RUN_EVAL"]:
+    #     if not config["RUN_TRAIN"]:
+    #         shutil.copytree(f"{copy_to_path}/orbax_checkpoints/{chkpt_name}", chkpt_save_path)
+    #     with jax.disable_jit(disable=_DISABLE_JIT.value):
+    #         eval = environment_loop.run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=4)  # config["NUM_ENVS"])
+    #         fig_actions, fig_q_diff = jax.block_until_ready(eval())
+    #         directory = f"{copy_to_path}/figures/{chkpt_name}"
+    #         if not os.path.exists(directory):
+    #             os.makedirs(directory)
+    #         for agent in range(config["NUM_AGENTS"]):
+    #             fig_actions[agent].savefig(
+    #                 f"{directory}/{file_name}_agent-{agent}_actions.svg")#, bbox_inches="tight")
+    #             fig_q_diff[agent].savefig(
+    #                 f"{directory}/{file_name}_agent-{agent}_q-diff.svg")#, bbox_inches='tight')
 
 
 if __name__ == '__main__':

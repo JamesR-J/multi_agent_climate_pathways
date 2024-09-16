@@ -390,6 +390,8 @@ class AYS_Environment(object):
         #
         #     self.old_reward[agent] = new_reward
 
+        # TODO all the below should go to zero if outside boundary right? worth checking if this happens or not
+
         def reward_distance_Y(agent):
             return jnp.abs(ayse[agent, 1] - self.PB_3[1])  # max y
 

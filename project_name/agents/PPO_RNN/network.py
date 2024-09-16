@@ -25,12 +25,6 @@ class ScannedRNN(nn.Module):
         rnn_state = carry
         ins, resets = x
 
-        print(resets.shape)
-        print(ins.shape)
-        print(rnn_state.shape)
-        sys.exit()
-
-
         rnn_state = jnp.where(resets[:, jnp.newaxis],
                               self.initialize_carry(*rnn_state.shape),
                               rnn_state,
@@ -52,12 +46,13 @@ class ActorCriticRNN(nn.Module):
     @nn.compact
     def __call__(self, hidden, x):
         obs, dones = x
+        print(hidden)
+        print(x)
+        print("NEW ONE")
         embedding = nn.Dense(128, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0))(obs)
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
-        print(embedding.shape)
-        print(dones.shape)
         hidden, embedding = ScannedRNN()(hidden, rnn_in)
 
         actor_mean = nn.Dense(self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0))(
@@ -70,5 +65,7 @@ class ActorCriticRNN(nn.Module):
         critic = nn.Dense(128, kernel_init=orthogonal(2), bias_init=constant(0.0))(embedding)
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
+
+        print(critic)
 
         return hidden, pi, jnp.squeeze(critic, axis=-1), actor_mean

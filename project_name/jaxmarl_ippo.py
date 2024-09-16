@@ -263,19 +263,24 @@ def make_train(config):
                         batch_size == config["NUM_STEPS"] * config["NUM_ACTORS"]
                 ), "batch size must be equal to number of steps * number of actors"
                 permutation = jax.random.permutation(_rng, batch_size)
+                print(traj_batch)
                 batch = (traj_batch, advantages, targets)
                 batch = jax.tree_util.tree_map(
                     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
                 )
+                print(batch)
                 shuffled_batch = jax.tree_util.tree_map(
                     lambda x: jnp.take(x, permutation, axis=0), batch
                 )
+                print(shuffled_batch)
                 minibatches = jax.tree_util.tree_map(
                     lambda x: jnp.reshape(
                         x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
+                print(minibatches)
+                sys.exit()
                 train_state, loss_info = jax.lax.scan(
                     _update_minbatch, train_state, minibatches
                 )
@@ -321,12 +326,12 @@ def make_train(config):
     return train
 
 
-# if __name__ == "__main__":
-#     with open("ippo_ff.yaml", "r") as file:
-#         config = yaml.safe_load(file)
-#
-#     rng = jax.random.PRNGKey(42)
-#
-#     train = jax.jit(make_train(config))
-#     out = jax.block_until_ready(train(rng))
+if __name__ == "__main__":
+    with open("ippo_ff.yaml", "r") as file:
+        config = yaml.safe_load(file)
+
+    rng = jax.random.PRNGKey(42)
+
+    train = jax.jit(make_train(config))
+    out = jax.block_until_ready(train(rng))
 

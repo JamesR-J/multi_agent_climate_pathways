@@ -43,6 +43,7 @@ parameters = ['A', 'Y', 'S', 'Action', 'Reward']
 
 reward_types = ['survive', 'survive_cost', 'desirable_region', 'rel_share', 'PB']
 management_actions = [(False, False), (True, False), (False, True), (True, True)]
+SMALLEST_SIZE = 10
 SMALL_SIZE = 13
 MEDIUM_SIZE = 15
 BIGGER_SIZE = 16
@@ -50,8 +51,8 @@ BIGGER_SIZE = 16
 plt.rc('font', size=SMALL_SIZE)  # controls default text sizes
 plt.rc('axes', titlesize=MEDIUM_SIZE)  # fontsize of the axes title
 plt.rc('axes', labelsize=MEDIUM_SIZE)  # fontsize of the x and y labels
-plt.rc('xtick', labelsize=SMALL_SIZE)  # fontsize of the tick labels
-plt.rc('ytick', labelsize=SMALL_SIZE)  # fontsize of the tick labels
+plt.rc('xtick', labelsize=SMALLEST_SIZE)  # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALLEST_SIZE)  # fontsize of the tick labels
 plt.rc('legend', fontsize=MEDIUM_SIZE)  # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
@@ -93,11 +94,11 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     S_scale = 1e9
     Y_scale = 1e12
     # ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
-    ax3d.set_xlabel("\n\nemissions E  \n  [GtC]", )
-    ax3d.set_ylabel("\n\neconomic output Y \n  [%1.0e USD/yr]" % Y_scale, )
+    ax3d.set_xlabel("\n\nEmissions E  \n" + r"($GtC$)")
+    ax3d.set_ylabel("\n\nEconomic output Y \n" + r"($1 \times 10^{12} USD/yr$)")
     # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
     if not top_down:
-        ax3d.set_zlabel("\n\ntotal excess atmospheric carbon\nstock A [GtC]")
+        ax3d.set_zlabel("\n\nExcess atmospheric carbon A \n" + r"($GtC$)")
 
     # Add boundaries to plot
     if plot_boundary:

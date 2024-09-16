@@ -17,6 +17,9 @@ from absl import logging
 import numpy as np
 import orbax
 from flax.training import orbax_utils
+import pandas as pd
+import shutil
+import os
 
 
 def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_input=None):
@@ -348,7 +351,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
             plot_end_state_matrix(win_ratio)  # TODO check axes are correct
             # plot_matrix_two(matrix_vals, win_ratio)
 
-        def plot_q_differences(input_for_cmap, ayse, agent, title_val, softmax=False):
+        def plot_q_differences(input_for_cmap, ayse, agent, title_val, softmax=False, episode_cmap=False):
 
 
             cmaps = [sns.color_palette("rocket", as_cmap=True),
@@ -362,10 +365,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                      sns.color_palette("mako", as_cmap=True),
                      sns.color_palette("mako", as_cmap=True),
                      ]
-            # cmaps = "mako"
-            # cmaps = ["ch:s=0.5, r=-0.5", "ch:s=0.5, rot=-0.75"]
-            # cmap_range = jnp.linspace(0, 2.3, env.num_agents)
-            # cmaps = [sns.cubehelix_palette(start=val, dark=0.1, light=0.9, as_cmap=True) for val in cmap_range]
+
             fig, ax3d = create_figure_ays(top_down=False)
             a_ind = env.agent_ids[agent]
             colour_diff = input_for_cmap[:, a_ind]
@@ -375,13 +375,27 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                 max_value = jnp.max(colour_diff)
                 colour_diff = (colour_diff - min_value) / (max_value - min_value)
 
+            episode_cmap = True
+            # when ayse[:, :, 2] == [0.5] * num_agents then this marks a new episode so should change colour
+            if episode_cmap:
+                cmaps = [sns.color_palette("mako", as_cmap=True)] * 10
+                traj_cmap = jnp.zeros_like(colour_diff)
+                increment_val = 0
+
+                for i in range(ayse[:, :, 2].shape[0]):
+                    if jnp.array_equal(ayse[i, :, 2], jnp.array([0.5] * env.num_agents)):
+                        increment_val += 1
+                    traj_cmap = traj_cmap.at[i].set(increment_val)
+
+                traj_cmap /= increment_val
+                colour_diff = traj_cmap
+
             scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
                                    c=colour_diff, alpha=0.8, s=1, cmap=cmaps[a_ind])
-            legend1 = ax3d.legend(*scatter.legend_elements(),
-                                  loc="upper left", title=title_val)
-            ax3d.set_title(f"Agent {a_ind}, Reward Func: {env.reward_type[a_ind]}")
-            ax3d.add_artist(legend1)
-            # plt.subplots_adjust(bottom=0.2, right=0.8)
+            # legend1 = ax3d.legend(*scatter.legend_elements(),
+            #                       loc="upper left", title=title_val)
+            # ax3d.set_title(f"Agent {a_ind}, Reward Func: {env.reward_type[a_ind]}")
+            # ax3d.add_artist(legend1)
 
             return fig
 

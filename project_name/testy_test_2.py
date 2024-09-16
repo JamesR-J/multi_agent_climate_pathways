@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 
 def make_HiPPO(N):
@@ -18,11 +19,38 @@ def make_HiPPO(N):
 # #     plt.imshow(range(len(row)), row)
 # plt.show()
 
+#
+# print(jnp.arange(11))
+# print(5 * 2 ** jnp.arange(11))
+#
+# remaining_reward = 5 * 2 ** jnp.arange(11)
+# print(remaining_reward)
+# remaining_reward = remaining_reward.at[-4:].set(0)
+# print(remaining_reward)
+#
+#
+# # plt.rcParams['text.usetex'] = True
+#
+# plt.plot([0,1,2,3,4], [0,1,2,3,4])
+# plt.xlabel("$\sigma 123^213$")
+# plt.show()
 
-print(jnp.arange(11))
-print(5 * 2 ** jnp.arange(11))
+x1 = 1
+x2 = 8
+x3 = 0.5
 
-remaining_reward = 5 * 2 ** jnp.arange(11)
-print(remaining_reward)
-remaining_reward = remaining_reward.at[-4:].set(0)
-print(remaining_reward)
+# first_term = np.sin((x1 + x2) / 2)
+# second_term = np.sin((x1 - x2) / 2)
+#
+# print(first_term * second_term)
+# print(first_term)
+# print(second_term)
+#
+#
+# print(f"This must be leq than 1 : {np.sin(x1 + x2)}")
+
+# print(np.sin(x1) * np.sin(x2))
+# print(np.sin(x2))
+
+print(np.sin(x1) * np.sin(x2) * np.sin(x3))
+print(np.sin(x1) * np.sin(x2))

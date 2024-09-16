@@ -81,7 +81,7 @@ def main(_):
             orbax_dir = "/cluster/project0/orbax"
             executor = ucl.UclGridEngine(
                 job_requirements,
-                walltime=24 * xm.Hr,  # 48 is max
+                walltime=12 * xm.Hr,  # 48 is max
                 extra_directives=["-l gpu_type=rtx4090"],
                 # extra_directives=["-l gpu_type=rtx4090 -pe gpu 3"],  # TODO allows specifying multiple GPUS
                 # extra_directives=["-l gpu_type=gtx1080ti"],  # TODO for beaker  https://hpc.cs.ucl.ac.uk/gpus/
