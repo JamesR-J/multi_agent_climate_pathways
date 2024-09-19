@@ -1,16 +1,17 @@
-import sys
+"""
+Adapted from JaxMARL
+https://github.com/FLAIROx/JaxMARL/tree/main
+"""
 
 import flax.linen as nn
-import functools
 import jax.numpy as jnp
-import jax.random as jrandom
 import numpy as np
 from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any, Dict
 import distrax
 
 
-class ActorCriticRNN(nn.Module):  # TODO change this and remove RNN
+class ActorCritic(nn.Module):
     action_dim: Sequence[int]
     config: Dict
     activation: str = "tanh"

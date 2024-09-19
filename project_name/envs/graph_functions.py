@@ -23,12 +23,10 @@ beta = 0.03
 beta_DG = 0.015
 eps = 147
 A_offset = 300
-# theta = beta /(950-A_offset)
 theta = 8.57e-5
 
 rho = 2.
 sigma = 4e12
-# sigma_ET = sigma*0.5**(1/rho)
 sigma_ET = 2.83e12
 
 phi = 4.7e10
@@ -93,10 +91,8 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
 
     S_scale = 1e9
     Y_scale = 1e12
-    # ax3d.set_xlabel("\n\nexcess atmospheric carbon\nstock A [GtC]", )
     ax3d.set_xlabel("\n\nEmissions E  \n" + r"($GtC$)")
     ax3d.set_ylabel("\n\nEconomic output Y \n" + r"($1 \times 10^{12} USD/yr$)")
-    # ax3d.set_zlabel("\n\nrenewable knowledge\nstock S [%1.0e GJ]"%S_scale,)
     if not top_down:
         ax3d.set_zlabel("\n\nExcess atmospheric carbon A \n" + r"($GtC$)")
 
@@ -111,14 +107,9 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
         # For Management Options
         for idx in range(len(management_options)):
             legend_elements.append(Line2D([0], [0], lw=2, color=color_list[idx], label=management_options[idx]))
-
-        # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=1, color=shelter_color, label='Shelter')
     else:
         for i in range(len(label)):
             ax3d.scatter(*zip([0.5, 0.5, 0.5]), lw=1, color=colors[i], label=label[i])
-
-    # For Startpoint
-    # ax3d.scatter(*zip([0.5,0.5,0.5]), lw=4, color='black')
 
     # For legend
     legend_elements.append(
@@ -126,22 +117,6 @@ def create_figure_ays(top_down, label=None, colors=None, ax=None, ticks=True, pl
     # ax3d.legend(handles=legend_elements,prop={'size': 14}, bbox_to_anchor=(0.85,.90), fontsize=20,fancybox=True, shadow=True)
 
     return fig3d, ax3d
-
-
-# def plot_hairy_lines(num, ax3d):
-#     colortop = "lime"
-#     colorbottom = "black"
-#     ays_0 = np.random.rand(num, 3)
-#     time = np.linspace(0, 300, 1000)
-#
-#     parameter_list = get_parameters(0)
-#     for i in range(num):
-#         x0 = ays_0[i]
-#         traj = odeint(ays.AYS_rescaled_rhs, x0, time, args=parameter_list[0])
-#         # print(traj[-1])
-#
-#         ax3d.plot3D(xs=traj[:, 0], ys=traj[:, 1], zs=traj[:, 2],
-#                     color=colorbottom if traj[-1, 2] < 0.5 else colortop, alpha=.08)
 
 
 def add_boundary(ax3d, *, sunny_boundaries, add_outer=False, plot_boundaries=None, model='ays', **parameters):
@@ -235,7 +210,7 @@ def make_3d_ticks_ays(ax3d, boundaries=None, transformed_formatters=False, S_sca
         ax3d.set_xlim(*boundaries[0])
 
     ax3d.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])  # TODO is this correct bound?
+    ax3d.set_xticklabels([0, 4, 8, 12, 16, 20])
 
     # Y - ticks
     transf = ft.partial(compactification, x_mid=current_state[1])

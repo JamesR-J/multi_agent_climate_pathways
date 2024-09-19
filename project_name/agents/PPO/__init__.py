@@ -1,1 +1,1 @@
-from .network import ActorCriticRNN
+from .network import ActorCritic

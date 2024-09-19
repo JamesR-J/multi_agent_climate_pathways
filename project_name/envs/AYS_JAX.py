@@ -1,32 +1,21 @@
 """
-This is the implementation of the AYS Environment in the form
-that it can used within the Agent-Environment interface
-in combination with the DRL-agent.
-
-@author: Felix Strnad, Theodore Wolf
-
+Adaption of the AYS environment into JAX, enabling full vectorisation
+Original: https://github.com/fstrnad/pyDRLinWESM
 """
 
 import sys
-import os
-
 import numpy as np
 import matplotlib.pyplot as plt
 
-from gym import Env
-from enum import Enum
-from inspect import currentframe, getframeinfo
-
-from .graph_functions import create_figure_ays
+from graph_functions import create_figure_ays
 from . import graph_functions as ays_plot, ays_model as ays
-from .ays_model import AYS_rescaled_rhs_marl2
 from flax import struct
 import chex
 import jax
 import jax.numpy as jnp
 import jax.random as jrandom
 from functools import partial
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any
 from jaxmarl.environments.spaces import Discrete, MultiDiscrete, Box
 from jax.experimental.ode import odeint
 import heapq as hq
@@ -58,7 +47,7 @@ class InfoState:
 
 
 class AYS_Environment(object):
-    def __init__(self, gamma=0.99, t0=0, dt=1, reward_type='PB', max_steps=600, image_dir='./images/', run_number=0,
+    def __init__(self, gamma=0.99, t0=0, dt=1, reward_type=['PB'], max_steps=600, image_dir='./images/', run_number=0,
                  plot_progress=False, num_agents=3, homogeneous=False, defined_param_start=False, evaluating=False):
         self.management_cost = 0.5
         self.image_dir = image_dir
@@ -80,13 +69,13 @@ class AYS_Environment(object):
         print(f"Reward type: {self.reward_type}")
 
         self.timeStart = 0
-        self.intSteps = 10  # integration Steps
+        self.intSteps = 10
         self.t = self.t0 = t0
         self.dt = dt
         self.sim_time_step = jnp.linspace(self.timeStart, dt, self.intSteps)
 
         self.green_fp = jnp.array([0.0, 1.0, 1.0, 0.0])  # ayse
-        self.black_fp = jnp.array([0.6, 0.4, 0.0, 1.0])  # ayse idk what e should be really
+        self.black_fp = jnp.array([0.6, 0.4, 0.0, 1.0])  # ayse
         self.final_radius = jnp.array([0.05])
         self.color_list = ays_plot.color_list
 
@@ -101,13 +90,13 @@ class AYS_Environment(object):
         """
         This values define the planetary boundaries of the AYS model
         """
-        self.start_point = [240, 7e13, 501.5198]  # TODO should this change, also why is it 501.5198 i cant remember
+        self.start_point = [240, 7e13, 501.5198]
         self.A_offset = 600
         self.A_boundary_param = 945 - self.A_offset
-        self.A_PB = jnp.array([self._compactification(ays.boundary_parameters["A_PB"],
-                                                      self.start_point[0])])  # Planetary boundary: 0.5897
-        self.Y_PB = jnp.array(([self._compactification(ays.boundary_parameters["W_SF"],
-                                                       self.start_point[1])]))  # Social foundations as boundary: 0.3636
+        self.A_PB = jnp.array([self._compactification(ays.boundary_parameters["A_PB"], self.start_point[0])])
+        # Planetary boundary: 0.5897
+        self.Y_PB = jnp.array(([self._compactification(ays.boundary_parameters["W_SF"], self.start_point[1])]))
+        # Social foundations as boundary: 0.3636
         self.S_LIMIT = jnp.array([0.0])  # i.e. min value we want
         self.E_LIMIT = jnp.array([1.0])  # i.e. max value we want
 
@@ -118,7 +107,7 @@ class AYS_Environment(object):
         self.PB_4 = jnp.concatenate((self.A_PB, jnp.array([0.0]), self.S_LIMIT))  # AYS
 
     @partial(jax.jit, static_argnums=(0,))
-    def reset(self, key: chex.PRNGKey, initial_state: chex.Array = jnp.zeros((1,))):  # TODO jnp.zeros is random array I need to make it work
+    def reset(self, key: chex.PRNGKey, initial_state: chex.Array = jnp.zeros((1,))) -> Tuple[dict, InfoState, chex.Array]:
         limit = 0.05
 
         # heterogeneous
@@ -131,13 +120,9 @@ class AYS_Environment(object):
         homo_state = homo_state.at[0, 2].set(0.5)
         homo_state = jnp.full((self.num_agents, 4), homo_state)
 
-        # print(initial_state.shape)
-        # sys.exit()
-
         state = jax.lax.select(self.homogeneous, homo_state, hetero_state)
 
         state = jnp.where(self.defined_param_start and self.evaluating, initial_state, state)
-        # TODO the above works but maybe theres a better way to do it? am sure takes some compute to do all the time
 
         state = state.at[:, 3].set(0)  # sets emissions to zero as ode solver finds delta rather than value
         actions = jnp.array([0 for _ in self.agents])
@@ -145,8 +130,6 @@ class AYS_Environment(object):
                                jnp.array([0.0, 1.0], dtype=jnp.float32),
                                self._get_parameters(actions), mxstep=50000)
         state = state.at[:, 3].set(traj_one_step[1, :, 3])  # way to prevent first e being 0 by running one calc
-
-        # assert jnp.allclose(state.at[:, 0].get(), state.at[0, 0].get()), "A - First column values are not equal."  # TODO reimplement this to work
 
         env_state = EnvState(ayse=state,
                              prev_actions=jnp.zeros((self.num_agents,), dtype=jnp.int32),
@@ -170,9 +153,6 @@ class AYS_Environment(object):
 
     @partial(jax.jit, static_argnums=(0,))
     def _get_obs(self, env_state: EnvState) -> Dict:
-        # should do partial and full obs options maybe?
-        # full_obs = jnp.concatenate((env_state.ayse, env_state.prev_actions.reshape(-1, 1)), axis=1)
-        # return {agent: full_obs[self.agent_ids[agent]] for agent in self.agents}
         return {agent: env_state.ayse[self.agent_ids[agent]] for agent in self.agents}
 
     def observation_space(self, agent: str):
@@ -188,7 +168,7 @@ class AYS_Environment(object):
              actions: Dict[str, chex.Array],
              graph_state: chex.Array,
              initial_state: chex.Array = jnp.zeros((1,)),
-             ) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], Dict]:
+             ) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], dict, chex.Array]:
         key, key_reset = jax.random.split(key)
         obs_st, states_st, rewards, dones, done_causations, infos, graph_states_st = self.step_env(key, state, actions,
                                                                                                    graph_state)
@@ -201,7 +181,6 @@ class AYS_Environment(object):
         graph_states = jax.tree_map(lambda x, y: jax.lax.select(dones["__all__"], x, y), graph_states_re,
                                     graph_states_st)
 
-        # add info stuff idk if right spot
         def _batchify_floats(x: dict):
             return jnp.stack([x[a] for a in self.agents])
 
@@ -210,7 +189,6 @@ class AYS_Environment(object):
         new_episode_length = state.episode_lengths + 1
 
         new_won_episode = jnp.any(done_causations == 1).astype(dtype=jnp.float32)
-        # TODO win for just one agent reaching the point
 
         wrapper_state = InfoState(env_state=states.env_state,
                                   won_episode=new_won_episode * (1 - ep_done),
@@ -231,7 +209,12 @@ class AYS_Environment(object):
         return obs, wrapper_state, rewards, dones, infos, graph_states
 
     @partial(jax.jit, static_argnums=(0,))
-    def step_env(self, key: chex.PRNGKey, state: InfoState, actions: dict, graph_state: chex.Array) -> Tuple[Dict[str, chex.Array], InfoState, Dict[str, float], Dict[str, bool], chex.Array, Dict, chex.Array]:
+    def step_env(self,
+                 key: chex.PRNGKey,
+                 state: InfoState,
+                 actions: dict,
+                 graph_state: chex.Array
+                 ) -> Tuple[Dict[str, chex.Array], Any, Dict[str, float], Dict[str, chex.Array], chex.Array, Dict[str, dict], chex.Array]:
         actions = jnp.array([actions[i] for i in self.agents])
 
         step = state.env_state.step + self.dt
@@ -242,18 +225,15 @@ class AYS_Environment(object):
         traj_one_step = odeint(self._ays_rescaled_rhs_marl, input_state,
                                jnp.array([state.env_state.step, step], dtype=jnp.float32),
                                action_matrix, mxstep=50000)
-        # TODO results match if it is using x64 bit precision but basically close with x32, worth mentioning in paper
+        # results match if it is using x64 bit precision but basically close with x32
 
         new_state = traj_one_step[1]
-        # assert jnp.all(new_state[:, 0] == new_state[0, 0]), "A - First column values are not equal."
-        # TODO make the above work
-        # TODO above works if don't call early stop stuff if you remember
 
         graph_state = graph_state.at[step, :].set(new_state)
 
         env_state = state.env_state
         env_state = env_state.replace(ayse=new_state,
-                                      prev_actions=actions,  # .squeeze(axis=1),
+                                      prev_actions=actions,
                                       step=step,
                                       terminal=self._terminal_state(new_state, step))
 
@@ -270,7 +250,7 @@ class AYS_Environment(object):
         # reward function innit
         rewards = self._get_rewards(env_state.ayse)
 
-        for agent in self.agents:  # TODO bit dodge but works out okay
+        for agent in self.agents:
             new_reward = jax.lax.select(jnp.logical_and(dones[agent], env_state.terminal),
                                         self._calculate_expected_final_reward(rewards[agent], graph_state),
                                         0.0)
@@ -294,8 +274,7 @@ class AYS_Environment(object):
                 jax.lax.stop_gradient(graph_state))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _get_parameters(self, actions):
-
+    def _get_parameters(self, actions: chex.Array) -> chex.Array:
         """
         This function is needed to return the parameter set for the chosen management option.
         Here the action numbers are really transformed to parameter lists, according to the chosen
@@ -326,7 +305,7 @@ class AYS_Environment(object):
         return poss_action_matrix[actions, :]
 
     @partial(jax.jit, static_argnums=(0,))
-    def _ays_rescaled_rhs_marl(self, ayse, t, args):
+    def _ays_rescaled_rhs_marl(self, ayse: chex.Array, t: int, args: chex.Array) -> chex.Array:
         """
         beta    = 0.03/0.015 = args[0]
         epsilon = 147        = args[1]
@@ -338,26 +317,22 @@ class AYS_Environment(object):
         theta   = beta / (950 - A_offset) = args[7]
         # trade = args[8]
         """
-        A_mid = 250  # TODO should these change with the different starting points though? idk yikes !!!I think so!!!
+        A_mid = 250
         Y_mid = 7e13
         S_mid = 5e11
-        E_mid = 10.01882267  # TODO is this correct idk?
-        # TODO how will this work with multi-agent though, could this be an input, but then again how would it work marl?
+        E_mid = 10.01882267
 
         ays_inv_matrix = 1 - ayse
-        # inv_s_rho = ays_inv_matrix.copy()
         inv_s_rho = ays_inv_matrix.at[:, 2].power(args[:, 3])
-        # A_matrix = (A_mid * ays_matrix[:, 0] / ays_inv_matrix[:, 0]).view(2, 1)
 
         # Normalise
         A_matrix = A_mid * (ayse[:, 0] / ays_inv_matrix[:, 0])
         Y_matrix = Y_mid * (ayse[:, 1] / ays_inv_matrix[:, 1])
         G_matrix = inv_s_rho[:, 2] / (inv_s_rho[:, 2] + (S_mid * ayse[:, 2] / args[:, 4]) ** args[:, 3])
         E_matrix = G_matrix / (args[:, 2] * args[:, 1]) * Y_matrix
-        E_tot = jnp.sum(E_matrix) / E_matrix.shape[0]  # TODO added divide by agents, need to check is correct response
+        E_tot = jnp.sum(E_matrix) / E_matrix.shape[0]
 
         adot = (E_tot - (A_matrix / args[:, 5])) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] / A_mid
-        # adot = G_matrix / (args[:, 2] * args[:, 1] * A_mid) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] * Y_matrix - ayse[:, 0] * ays_inv_matrix[:, 0] / args[:, 5]
         ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix)
         sdot = ((1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) -
                 ayse[:, 2] * ays_inv_matrix[:, 2] / args[:, 6])
@@ -368,46 +343,26 @@ class AYS_Environment(object):
             (adot[:, jnp.newaxis], ydot[:, jnp.newaxis], sdot[:, jnp.newaxis], E_output[:, jnp.newaxis]), axis=1)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _get_rewards(self, ayse):  # TODO can we vmap rewards?
+    def _get_rewards(self, ayse: chex.Array) -> dict:
         def reward_distance_PB(agent):
             return jnp.where(self._inside_planetary_boundaries_reward(ayse, agent),
                              jnp.linalg.norm(ayse[agent, :3] - self.PB_2),
                              0.0)
 
-        # def incentivised_reward_distance_PB(agent):  # TODO need to reimplement somehow with old rewards
-        #     if self._inside_A_pb(agent):
-        #         new_reward = jnp.linalg.norm(ayse[agent, :3] - self.PB_4[agent])
-        #     #     #  new_reward = torch.sqrt(4 * (torch.abs(self.reward_space[agent, 0] - self.PB_4[agent, 0])) ** 2 + (torch.abs(self.reward_space[agent, 1] - self.PB_4[agent, 1])) ** 2 + (torch.abs(self.reward_space[agent, 2] - self.PB_4[agent, 2])) ** 2)  # weighted by 4 to the a goal
-        #     else:
-        #         new_reward = 0.0
-        #
-        #     if self.old_reward[agent] > new_reward:
-        #         self.reward[agent] = -new_reward
-        #     elif self.old_reward[agent] < new_reward:
-        #         self.reward[agent] = new_reward
-        #     else:
-        #         self.reward[agent] = 0.0
-        #
-        #     self.old_reward[agent] = new_reward
-
-        # TODO all the below should go to zero if outside boundary right? worth checking if this happens or not
-
         def reward_distance_Y(agent):
-            return jnp.abs(ayse[agent, 1] - self.PB_3[1])  # max y
+            return ayse[agent, 1] - self.PB_3[1]  # max y
 
         def reward_distance_E(agent):
-            return jnp.abs(ayse[agent, 3] - self.PB_3[3])  # max e
+            return ayse[agent, 3] - self.PB_3[3]  # max e
 
         def reward_distance_A(agent):
-            return jnp.abs(ayse[agent, 0] - self.PB_3[0])  # max a
+            return ayse[agent, 0] - self.PB_3[0]  # max a
 
         rewards = jnp.zeros(self.num_agents)
         for agent in self.agents:
             agent_index = self.agent_ids[agent]
             if self.reward_type[agent_index] == 'PB':
                 agent_reward = reward_distance_PB(agent_index)
-            # elif self.reward_type[agent] == 'IPB':
-            #     agent_reward = incentivised_reward_distance_PB(agent)
             elif self.reward_type[agent_index] == 'max_Y':
                 agent_reward = reward_distance_Y(agent_index)
             elif self.reward_type[agent_index] == 'max_E':
@@ -417,12 +372,12 @@ class AYS_Environment(object):
             else:
                 print("ERROR! The reward function you chose is not available! " + self.reward_type[agent_index])
                 sys.exit()
-            rewards = rewards.at[agent_index].set(agent_reward.squeeze())  # TODO added a squeeze idk if right
+            rewards = rewards.at[agent_index].set(agent_reward.squeeze())
 
         return {agent: rewards[self.agent_ids[agent]] for agent in self.agents}
 
     @partial(jax.jit, static_argnums=(0,))
-    def _calculate_expected_final_reward(self, rewards, graph_state):
+    def _calculate_expected_final_reward(self, rewards: chex.Array, graph_state: chex.Array) -> chex.Array:
         """
         Get the reward in the last state, expecting from now on always default.
         This is important since we break up simulation at final state, but we do not want the agent to
@@ -449,7 +404,7 @@ class AYS_Environment(object):
                           [0.0, np.infty], x_mid * y / (1 - y))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _inside_planetary_boundaries_reward(self, ayse, agent_index):  # TODO update this
+    def _inside_planetary_boundaries_reward(self, ayse: chex.Array, agent_index: int) -> chex.Array:
         result = jax.lax.select(jnp.logical_and(ayse.at[agent_index, 0].get() < self.A_PB,
                                                 ayse.at[agent_index, 1].get() > self.Y_PB,
                                                 ).squeeze(), True, False)
@@ -457,53 +412,52 @@ class AYS_Environment(object):
         return result
 
     @partial(jax.jit, static_argnums=(0,))
-    def _inside_planetary_boundaries(self, ayse):
+    def _inside_planetary_boundaries(self, ayse: chex.Array) -> chex.Array:
         return jax.lax.select(jnp.logical_and(ayse[0] < self.A_PB,
                                               ayse[1] > self.Y_PB).squeeze(), True, False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _terminal_state(self, ayse, step):  # TODO can make this better than atm? less logical or
+    def _terminal_state(self, ayse: chex.Array, step: int) -> chex.Array:
         result = jax.lax.select(jnp.logical_or(jnp.any(jax.vmap(self._arrived_at_final_state)(ayse)),
                                                jnp.logical_or(step >= self.max_steps,
                                                               jnp.logical_or(jnp.all(ayse.at[:, 0].get() >= self.A_PB),
-                                                                             # TODO can we use inside planetary boundaries here again?
                                                                              jnp.all(ayse.at[:, 1].get() <= self.Y_PB),
                                                                              ))), True, False)
 
         return result
 
     @partial(jax.jit, static_argnums=(0,))
-    def _arrived_at_final_state(self, ayse):  # ignore e
+    def _arrived_at_final_state(self, ayse: chex.Array) -> chex.Array:  # ignore e
         return jax.lax.select(jnp.logical_or(self._green_fixed_point(ayse),
                                              self._black_fixed_point(ayse)),
                               True, False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _green_fixed_point(self, ayse):  # ignore e
+    def _green_fixed_point(self, ayse: chex.Array) -> chex.Array:  # ignore e
         return jax.lax.select(jnp.all(jnp.abs(ayse - self.green_fp)[:3] < self.final_radius),
                               True,
                               False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _black_fixed_point(self, ayse):  # ignore e
+    def _black_fixed_point(self, ayse: chex.Array) -> chex.Array:  # ignore e
         return jax.lax.select(jnp.all(jnp.abs(ayse - self.black_fp)[:3] < self.final_radius),
                               True,
                               False)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _which_final_state(self, ayse):
+    def _which_final_state(self, ayse: chex.Array) -> chex.Array:
         return jnp.select([self._green_fixed_point(ayse), self._black_fixed_point(ayse)],
                           [1, 2], self._which_PB(ayse))
 
     @partial(jax.jit, static_argnums=(0,))
-    def _which_PB(self, ayse):  # TODO check this
+    def _which_PB(self, ayse: chex.Array) -> chex.Array:
         return jnp.select([ayse[0] >= self.A_PB,
                            ayse[1] <= self.Y_PB,
                            ayse[2] <= self.S_LIMIT],
                           [3, 4, 5], 7)
 
     @partial(jax.jit, static_argnums=(0,))
-    def _done_causation(self, ayse, dones):
+    def _done_causation(self, ayse: chex.Array, dones: chex.Array) -> chex.Array:
         """
         0 = None
         1 = Green Fixed Point
@@ -519,7 +473,7 @@ class AYS_Environment(object):
 
     @partial(jax.jit, static_argnums=(0,))
     def render(self, graph_states: chex.Array):
-        fig, ax3d = create_figure_ays(top_down=False)  # TODO sort the self stuff first
+        fig, ax3d = create_figure_ays(top_down=False)
         colors = plt.cm.brg(np.linspace(0, 1, self.num_agents))
         graph_states = graph_states[~(jnp.all(graph_states == 0.0, axis=(1, 2)))]
         for agent in self.agents:

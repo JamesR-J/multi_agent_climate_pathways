@@ -3,7 +3,7 @@ name = "multi_agent_climate_pathways"
 version = "0.1.0"
 description = "Default template for PDM package"
 authors = [
-    {name = "jamesrj_desktop", email = "james.rudd.jones@gmail.com"},
+    {name = "jamesrj", email = "ucabjru@ucl.ac.uk"},
 ]
 dependencies = [
     "absl-py>=2.1.0",

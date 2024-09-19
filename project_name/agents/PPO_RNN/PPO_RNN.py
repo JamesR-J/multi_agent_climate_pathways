@@ -1,19 +1,22 @@
-import sys
+"""
+Adapted from JaxMARL
+https://github.com/FLAIROx/JaxMARL/tree/main
+"""
+
+import chex
 import jax
 import jax.numpy as jnp
 from typing import Any
 import jax.random as jrandom
 from functools import partial
-from project_name.agents.PPO_RNN.network import ActorCriticRNN, ScannedRNN  # TODO sort out this class import ting
+from project_name.agents.PPO_RNN import ActorCriticRNN, ScannedRNN
 import optax
 from flax.training.train_state import TrainState
+from typing import Tuple
 
 
 class PPO_RNNAgent:
-    def __init__(self,
-                 env,
-                 key,
-                 config):
+    def __init__(self, env: Any, key: chex.PRNGKey, config: dict):
         self.config = config
         self.env = env
         self.network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config)
@@ -22,15 +25,14 @@ class PPO_RNNAgent:
                   )
         key, _key = jrandom.split(key)
         init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
-        self.network_params = self.network.init(_key, init_hstate, init_x)
-        self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"],
-                                                       config["GRU_HIDDEN_DIM"])  # TODO do we need both?
 
-        def linear_schedule(count):  # TODO put this somewhere better and think this is right?
+        self.network_params = self.network.init(_key, init_hstate, init_x)
+        self.init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
+
+        def linear_schedule(count):
             if config["SPLIT_TRAIN"]:
                 count += config["NUM_UPDATES"]
-            frac = (1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["TOTAL_UPDATES"])
-            # frac = 1 - count // 16 / num_updates
+            frac = (1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / config["NUM_UPDATES"])
             return config["LR"] * frac
 
         if config["ANNEAL_LR"]:
@@ -42,7 +44,7 @@ class PPO_RNNAgent:
                                   optax.adam(config["LR"], eps=1e-5),
                                   )
 
-    def create_train_state(self):
+    def create_train_state(self) -> Tuple[TrainState, chex.Array]:
         return (TrainState.create(apply_fn=self.network.apply,
                                   params=self.network_params,
                                   tx=self.tx),
@@ -50,25 +52,24 @@ class PPO_RNNAgent:
                 )
 
     @partial(jax.jit, static_argnums=(0))
-    def act(self, train_state: Any, hstate: Any, ac_in: Any, key: Any):  # TODO better implement checks
+    def act(self, train_state: TrainState, hstate: chex.Array, ac_in: chex.Array, key: chex.PRNGKey) -> Tuple[
+        chex.Array, chex.Array, chex.Array, chex.Array, chex.PRNGKey, chex.Array, chex.PRNGKey]:
         hstate, pi, value, action_logits = train_state.apply_fn(train_state.params, hstate, ac_in)
         key, _key = jrandom.split(key)
         action = pi.sample(seed=_key)
         log_prob = pi.log_prob(action)
 
-        return hstate, action, log_prob, value, key, action_logits, _key  # TODO do we need to return key?
+        return hstate, action, log_prob, value, key, action_logits, _key
 
     @partial(jax.jit, static_argnums=(0))
-    def update(self, runner_state, traj_batch):
-        # CALCULATE ADVANTAGE
+    def update(self, runner_state: chex.Array, traj_batch: chex.Array) -> Tuple[
+        TrainState, chex.Array, chex.Array, chex.Array, chex.Array, chex.PRNGKey]:
         train_state, env_state, last_obs, last_done, hstate, key = runner_state
-        # avail_actions = jnp.ones(self.env.action_space(self.env.agents[0]).n)
         ac_in = (last_obs[jnp.newaxis, :],
                  last_done[jnp.newaxis, :],
-                 # avail_actions[jnp.newaxis, :],
                  )
         _, _, last_val, _ = train_state.apply_fn(train_state.params, hstate, ac_in)
-        last_val = last_val.squeeze()
+        last_val = jnp.squeeze(last_val, axis=-1)
 
         def _calculate_gae(traj_batch, last_val):
             def _get_advantages(gae_and_next_value, transition):
@@ -99,13 +100,9 @@ class PPO_RNNAgent:
                 def _loss_fn(params, init_hstate, traj_batch, gae, targets):
                     # RERUN NETWORK
                     _, pi, value, _ = train_state.apply_fn(params,
-                                                      init_hstate.squeeze(axis=0),
-                                                      (traj_batch.obs,
-                                                       traj_batch.done,
-                                                       # traj_batch.avail_actions
-                                                       ),
-                                                      )
-                    sys.exit()
+                                                           jnp.squeeze(init_hstate, axis=0),
+                                                           (traj_batch.obs, traj_batch.done),
+                                                           )
                     log_prob = pi.log_prob(traj_batch.action)
 
                     # CALCULATE VALUE LOSS
@@ -147,26 +144,20 @@ class PPO_RNNAgent:
             init_hstate = jnp.reshape(init_hstate, (1, self.config["NUM_ENVS"], -1))
 
             permutation = jrandom.permutation(_key, self.config["NUM_ENVS"])
-            print(traj_batch)
             traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
-            batch = (init_hstate,  # TODO check this axis swapping etc if it works
+            batch = (init_hstate,
                      traj_batch,
                      jnp.swapaxes(advantages, 0, 1).squeeze(),
                      jnp.swapaxes(targets, 0, 1).squeeze())
-            print(batch)
-            print("2")
             shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=1), batch)
-            print(shuffled_batch)
-            print("3")
 
             minibatches = jax.tree_util.tree_map(lambda x: jnp.swapaxes(
                 jnp.reshape(x, [x.shape[0], self.config["NUM_MINIBATCHES"], -1] + list(x.shape[2:]), ), 1, 0, ),
                                                  shuffled_batch, )
-            print(minibatches)
-            # sys.exit()
+
             train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
 
-            traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)  # TODO dodge to swap back again
+            traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
 
             update_state = (train_state,
                             init_hstate.squeeze(),

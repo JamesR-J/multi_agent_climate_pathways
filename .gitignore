@@ -191,3 +191,5 @@ cython_debug/
 /data/
 /project_name/images/
 /20240202-off2on_pretraining_analysis.ipynb
+/figures/
+/graphing/

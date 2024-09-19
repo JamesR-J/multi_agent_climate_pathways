@@ -1,9 +1,10 @@
-import sys
+"""
+Adapted from JaxMARL
+https://github.com/FLAIROx/JaxMARL/tree/main
+"""
+
 import jax
-from jaxmarl.environments.smax import map_name_to_scenario, HeuristicEnemySMAX
-from jaxmarl.wrappers.baselines import SMAXLogWrapper
 import jax.numpy as jnp
-from typing import Sequence, NamedTuple, Any, Dict
 import wandb
 import jax.random as jrandom
 from .envs.AYS_JAX import AYS_Environment
@@ -13,13 +14,7 @@ from .utils import batchify, unbatchify, Transition, EvalTransition
 import matplotlib.pyplot as plt
 import seaborn as sns
 from .envs.graph_functions import create_figure_ays
-from absl import logging
 import numpy as np
-import orbax
-from flax.training import orbax_utils
-import pandas as pd
-import shutil
-import os
 
 
 def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_input=None):
@@ -28,7 +23,7 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                           homogeneous=config["HOMOGENEOUS"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
-    config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * config["NUM_LOOPS"]  # TODO added in for linear schedule dodgyness
+    config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * config["NUM_LOOPS"]
     config["MINIBATCH_SIZE"] = (config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"])
     config["CLIP_EPS"] = (config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"])
 
@@ -54,8 +49,6 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                         jnp.zeros((env.num_agents, config["NUM_ENVS"]), dtype=bool), hstate, graph_state, key)
 
         def _run_update(update_runner_state, unused):
-        # update_runner_state = runner_state, 0
-        # for update_steps in range(config["NUM_UPDATES"] - 1000):
             runner_state, update_steps = update_runner_state
 
             def _run_episode_step(runner_state, unused):
@@ -66,15 +59,13 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                 obs_batch = batchify(last_obs, env.agents, env.num_agents, config["NUM_ENVS"])
                 hstate, action_n, log_prob_n, value_n, key, _, _ = actor.act(train_state, hstate, obs_batch, last_done, key)
                 env_act = unbatchify(action_n, env.agents, env.num_agents, config["NUM_DEVICES"])
-                env_act = {k: v for k, v in env_act.items()}  # TODO chck the axis squeeze v.squeeze(axis=1)
+                env_act = {k: v for k, v in env_act.items()}
 
                 # step in env
                 key, _key = jrandom.split(key)
-                # key_step = jrandom.split(_key, config["NUM_ENVS"])
                 key_step = jrandom.split(key, config["NUM_ENVS"]).reshape(config["NUM_DEVICES"],
                                                                           config["NUM_ENVS"] // config["NUM_DEVICES"],
                                                                           -1)
-                # obs, env_state, reward, done, info, env_graph_state = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(key_step, env_state, env_act, env_graph_state)
                 vstep = jax.vmap(env.step, in_axes=(0, 0, 0, 0), axis_name="batch_axis")
                 obs, env_state, reward, done, info, env_graph_state = jax.pmap(vstep,
                                                                                out_axes=(0, 0, 0, 0, 0, 0),
@@ -83,8 +74,6 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                                                                                                         env_act,
                                                                                                         env_graph_state)
 
-                # update tings my dude
-                # swaps agent id axis and envs so that agent id comes first
                 info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], env.num_agents), 0, 1), info)
                 done_batch = batchify(done, env.agents, env.num_agents, config["NUM_ENVS"]).squeeze(axis=2)
                 transition = Transition(
@@ -110,23 +99,21 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
             train_state = update_state[0]
             last_obs = update_state[2]
             last_done = update_state[3]
-            key = update_state[-1]  # TODO make this name rather than number index would probs be good inni, same as above
+            key = update_state[-1]
 
             # metric handling
             metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
 
             def callback(metric, train_state):
-                # if metric["update_steps"] >= 1000 and metric["update_steps"] <= 1250:  # TODO comment this out when don't want it
+                # if metric["update_steps"] >= 1000 and metric["update_steps"] <= 1250:  # comment this out when don't want it
                 #     checkpoint_manager.save(metric["update_steps"], train_state)
                 metric_dict = {
-                    # the metrics have an agent dimension, but this is identical
-                    # for all agents so index into the 0th item of that dimension. not true anymore as hetero babY
-                    "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),  # This always follows the PB following agent_0
+                    "returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "win_rate": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"] + env_step_count_init
                 }
 
-                for agent in env.agents:  # TODO this is cool but win rate is defined by only green fixed point so should be the same for all agents anyway??
+                for agent in env.agents:
                     metric_dict[f"returns_{agent}"] = metric["returned_episode_returns"][:, :, env.agent_ids[agent]][
                         metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
                     metric_dict[f"win_rate_{agent}"] = metric["returned_won_episode"][:, :, env.agent_ids[agent]][
@@ -148,10 +135,6 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
     return train
 
 def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
-    # TODO lots to update here
-    # TODO can we reduce reusing code from above, would we make this a class? or have to import things
-    # TODO or export config from the above? idk and the env?
-
     config["NUM_ENVS"] = num_envs
 
     if config["DEFINED_PARAM_START"]:
@@ -190,7 +173,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
             actor = Agent(env=env, config=config, key=key)
         else:
             actor = MultiAgent(env=env, config=config, key=key)
-        train_state, hstate = actor.initialise()  # TODO should we checkpoint the hstate too?
+        train_state, hstate = actor.initialise()
 
         target = {'model': train_state}  # must match the input dict
         train_state = orbax_checkpointer.restore(chkpt_save_path, item=target)["model"]
@@ -215,15 +198,13 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
             hstate, action_n, log_prob_n, value_n, key, pi, spec_key = actor.act(train_state, hstate, obs_batch,
                                                                                  last_done, key)
             env_act = unbatchify(action_n, env.agents, env.num_agents, config["NUM_DEVICES"])
-            env_act = {k: v for k, v in env_act.items()}  # TODO chck the axis squeeze v.squeeze(axis=1)
+            env_act = {k: v for k, v in env_act.items()}
 
             # step in env
             key, _key = jrandom.split(key)
-            # key_step = jrandom.split(_key, config["NUM_ENVS"])
             key_step = jrandom.split(key, config["NUM_ENVS"]).reshape(config["NUM_DEVICES"],
                                                                       config["NUM_ENVS"] // config["NUM_DEVICES"],
                                                                       -1)
-            # obs, env_state, reward, done, info, env_graph_state = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(key_step, env_state, env_act, env_graph_state)
             vstep = jax.vmap(env.step, in_axes=(0, 0, 0, 0, 0), axis_name="batch_axis")
             obs, env_state, reward, done, info, env_graph_state = jax.pmap(vstep,
                                                                            out_axes=(0, 0, 0, 0, 0, 0),
@@ -233,8 +214,6 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                                                                                                     env_graph_state,
                                                                                                     initial_states)
 
-            # update tings my dude
-            # swaps agent id axis and envs so that agent id comes first
             info = jax.tree_map(lambda x: jnp.swapaxes(x.reshape(config["NUM_ENVS"], env.num_agents), 0, 1), info)
             done_batch = batchify(done, env.agents, env.num_agents, config["NUM_ENVS"]).squeeze(axis=2)
             transition = EvalTransition(
@@ -251,7 +230,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                 env_state,
             )
 
-            # env.render(env_graph_state[0])  # TODO add conditional about rendering or not as depends on jit
+            # env.render(env_graph_state[0])  # add conditional about rendering or not as depends on jit
 
             return (train_state, env_state, obs, done_batch, hstate, env_graph_state, initial_states, key), transition
 
@@ -260,18 +239,16 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
         # metric handling
         metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
-        metric["update_steps"] = 1  # TODO is this necessary??
+        metric["update_steps"] = 1
 
         def callback(metric):
             metric_dict = {
-                # the metrics have an agent dimension, but this is identical
-                # for all agents so index into the 0th item of that dimension. not true anymore as hetero babY
                 "eval_returns": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                 "eval_win_rate": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                 "eval_env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_EVAL_STEPS"]
             }
 
-            for agent in env.agents:  # TODO this is cool but win rate is defined by only green fixed point so should be the same for all agents anyway??
+            for agent in env.agents:
                 metric_dict[f"eval_returns_{agent}"] = metric["returned_episode_returns"][:, :, env.agent_ids[agent]][
                     metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
                 metric_dict[f"eval_win_rate_{agent}"] = metric["returned_won_episode"][:, :, env.agent_ids[agent]][
@@ -279,9 +256,8 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
             wandb.log(metric_dict)
 
-        # jax.experimental.io_callback(callback, None, metric)  # TODO do we want to use wandb here?
+        # jax.experimental.io_callback(callback, None, metric)  # do we want to use wandb here?
 
-        # TODO it does not have a device dim as agents arent pmaped, will that lead to any issues in indexing?
         # below shape is num_eval_steps, num_agents, num_envs, num_actions
         # now converted to num_eval_steps, num_envs, num_agents, num_actions
         distribution_logits = jnp.swapaxes(trajectory_batch.distribution, 1, 2).reshape(
@@ -297,23 +273,18 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
         if config["DEFINED_PARAM_START"]:
             # count how many episodes ended
             eps_ended = jnp.sum(metric["returned_episode"][:, :, 0], axis=0)
-            # TODO issue is it only follows the one agent won score
 
             # then do a logical and between end and win
             win_number = jnp.sum(jnp.logical_and(jnp.logical_or(metric["returned_won_episode"][:, :, 0], metric["returned_won_episode"][:, :, 1]), metric["returned_episode"][:, :, 0]), axis=0)
-            # TODO does this count for both agents win ? or between agents and then and with episode end?
-
-            # compare these two values for each env?
-            win_ratio = win_number / eps_ended  # TODO add a check to prevent NaNs if 0/0
+            # compare these two values for each env
+            win_ratio = win_number / eps_ended
 
             matrix_vals = initial_states.reshape((config["NUM_ENVS"],
                                                   env.num_agents,
                                                   env.observation_space(env.agents[0]).shape[0]))[:, :, config["MID_INDEX"]]
 
-            def plot_end_state_matrix(results):  # TODO fix this ting cus it do not work
+            def plot_end_state_matrix(results):
                 fig = plt.imshow(jnp.flip(results.reshape(config["RESOLUTION"], config["RESOLUTION"]), axis=0),
-                # fig = plt.imshow(jnp.flip(jnp.rot90(results.reshape(config["RESOLUTION"], config["RESOLUTION"])), axis=0),
-                # fig = plt.imshow(jnp.flip(jnp.flip(results.reshape(config["RESOLUTION"], config["RESOLUTION"]), axis=1), axis=0),
                                  extent=(config["LOWER_BOUND"], config["UPPER_BOUND"],
                                          config["LOWER_BOUND"], config["UPPER_BOUND"]),
                                  cmap='mako')
@@ -325,7 +296,6 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
                 ax = plt.gca()
 
-                # ax.set_yticklabels([180, 200, 220, 240, 260, 280])
                 ax.set_yticklabels([53, 55, 62, 70, 77, 85, ])
                 ax.set_xticklabels([53, 55, 62, 70, 77, 85, ])
                 ax.set_title('PC')
@@ -348,7 +318,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                 plt.imshow(color_map, extent=(unique_x.min(), unique_x.max(), unique_y.min(), unique_y.max()), cmap="mako")
                 plt.show()
 
-            plot_end_state_matrix(win_ratio)  # TODO check axes are correct
+            plot_end_state_matrix(win_ratio)
             # plot_matrix_two(matrix_vals, win_ratio)
 
         def plot_q_differences(input_for_cmap, ayse, agent, title_val, softmax=False, episode_cmap=False):

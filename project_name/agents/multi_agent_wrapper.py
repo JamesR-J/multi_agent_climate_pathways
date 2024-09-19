@@ -1,33 +1,34 @@
+import chex
 import jax
 import jax.numpy as jnp
-import jax.random as jrandom
 from project_name.agents.agent_main import Agent
-import sys
-from ..utils import import_class_from_folder, batchify
+from project_name.utils import import_class_from_folder, batchify
 from functools import partial
-from typing import Any
+from typing import Any, Tuple
+from flax.training.train_state import TrainState
 
 
 class MultiAgent(Agent):
-    def __init__(self, env, config, key):
+    def __init__(self, env: Any, config: dict, key: chex.PRNGKey):
         super().__init__(env, config, key)
-        self.agent_list = {agent: None for agent in env.agents}  # TODO is there a better way to do this?
+        self.agent_list = {agent: None for agent in env.agents}
         self.hstate = jnp.zeros((env.num_agents, config['NUM_ENVS'], config["GRU_HIDDEN_DIM"]))
-        self.train_state_list = {agent: None for agent in env.agents}
+        self.train_state_dict = {agent: None for agent in env.agents}
         for agent in env.agents:
             self.agent_list[agent] = (
                 import_class_from_folder(self.agent_types[agent])(env=env, key=key, config=config))
             train_state, init_hstate = self.agent_list[agent].create_train_state()
             self.hstate = self.hstate.at[env.agent_ids[agent], :].set(init_hstate)
-            self.train_state_list[agent] = train_state
-            # TODO this is dodgy list train_state way, but can we make a custom sub class, is that faster?
+            self.train_state_dict[agent] = train_state
 
     @partial(jax.jit, static_argnums=(0,))
-    def initialise(self):
-        return self.train_state_list, self.hstate
+    def initialise(self) -> Tuple[dict, chex.Array]:
+        return self.train_state_dict, self.hstate
 
     @partial(jax.jit, static_argnums=(0,))
-    def act(self, train_state: Any, hstate: Any, obs_batch: Any, last_done: Any, key: Any):  # TODO add better chex
+    def act(self, train_state: TrainState, hstate: chex.Array, obs_batch: chex.Array, last_done: chex.Array,
+            key: chex.PRNGKey) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.PRNGKey, chex.Array,
+    chex.PRNGKey]:
         action_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]), dtype=int)
         value_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
         log_prob_n = jnp.zeros((self.env.num_agents, self.config["NUM_ENVS"]))
@@ -37,11 +38,8 @@ class MultiAgent(Agent):
             ac_in = (obs_batch[jnp.newaxis, self.env.agent_ids[agent], :],
                      last_done[jnp.newaxis, self.env.agent_ids[agent]],
                      )
-            ind_hstate, ind_action, ind_log_prob, ind_value, key, pi, spec_key = self.agent_list[agent].act(train_state[agent],
-                                                                                              hstate[
-                                                                                              self.env.agent_ids[agent],
-                                                                                              :],
-                                                                                              ac_in, key)
+            ind_hstate, ind_action, ind_log_prob, ind_value, key, pi, spec_key = (
+                self.agent_list[agent].act(train_state[agent], hstate[self.env.agent_ids[agent], :], ac_in, key))
             action_n = action_n.at[self.env.agent_ids[agent]].set(ind_action[0])
             value_n = value_n.at[self.env.agent_ids[agent]].set(ind_value[0])
             log_prob_n = log_prob_n.at[self.env.agent_ids[agent]].set(ind_log_prob[0])
@@ -52,11 +50,10 @@ class MultiAgent(Agent):
         return hstate, action_n, log_prob_n, value_n, key, pi_n, spec_key_n
 
     @partial(jax.jit, static_argnums=(0,))
-    def update(self, update_state: Any, trajectory_batch: Any):  # TODO add better chex
+    def update(self, update_state: chex.Array, trajectory_batch: chex.Array) -> Tuple[TrainState, chex.Array, chex.Array, chex.Array, chex.Array, chex.PRNGKey]:
         train_state, env_state, last_obs, last_done, hstate, key = update_state
         last_obs_batch = batchify(last_obs, self.env.agents, self.env.num_agents, self.config["NUM_ENVS"])
-        for agent in self.env.agents:  # TODO this is probs mega slowsies
-            # TODO be good to pmap agents as think this is the biggest storage draw, i,e. distribute agents between GPU
+        for agent in self.env.agents:
             individual_trajectory_batch = jax.tree_map(lambda x: x[:, self.env.agent_ids[agent]], trajectory_batch)
             individual_train_state = (train_state[agent], env_state, last_obs_batch[self.env.agent_ids[agent], :],
                                       last_done[self.env.agent_ids[agent]],
