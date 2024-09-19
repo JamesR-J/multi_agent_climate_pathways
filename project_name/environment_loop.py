@@ -108,7 +108,7 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                 # if metric["update_steps"] >= 1000 and metric["update_steps"] <= 1250:  # comment this out when don't want it
                 #     checkpoint_manager.save(metric["update_steps"], train_state)
                 metric_dict = {
-                    "returns_global": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
+                    # "returns_global": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "win_rate_global": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"] + env_step_count_init
                 }
@@ -116,8 +116,8 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                 for agent in env.agents:
                     metric_dict[f"returns_{agent}"] = metric["returned_episode_returns"][:, :, env.agent_ids[agent]][
                         metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
-                    metric_dict[f"win_rate_{agent}"] = metric["returned_won_episode"][:, :, env.agent_ids[agent]][
-                        metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
+                    # metric_dict[f"win_rate_{agent}"] = metric["returned_won_episode"][:, :, env.agent_ids[agent]][
+                    #     metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
 
                 wandb.log(metric_dict)
 
