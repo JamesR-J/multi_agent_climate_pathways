@@ -7,7 +7,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-from graph_functions import create_figure_ays
+from .graph_functions import create_figure_ays
 from . import graph_functions as ays_plot, ays_model as ays
 from flax import struct
 import chex

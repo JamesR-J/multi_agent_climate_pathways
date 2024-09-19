@@ -10,38 +10,47 @@ import orbax.checkpoint
 from flax.training import orbax_utils
 from flax.training.train_state import TrainState
 import shutil
+from datetime import datetime
 
 
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load from checkpoint path")
 _SEED = flags.DEFINE_integer("seed", 44, "Random seed")
 _WORK_DIR = flags.DEFINE_string("workdir", "orbax_checkpoints", "Work unit directory.")
-_NUM_AGENTS = flags.DEFINE_integer("num_agents", 1, "number of agents")
+_NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
+_REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB"], "Agent reward types")
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether homo or hetero")
 _SPLIT_TRAIN = flags.DEFINE_boolean("split_train", False, "whether to run looped training or not")
 _NUM_LOOPS = flags.DEFINE_integer("num_loops", 2, "number of loops for split train")
 
-_CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 
 def main(_):
     with open("project_name/ippo_config_global.yaml", "r") as file:
         config = yaml.safe_load(file)
     config["SEED"] = _SEED.value
     config["NUM_AGENTS"] = _NUM_AGENTS.value
+    config["REWARD_TYPE"] = _REWARD_TYPE.value
     config["HOMOGENEOUS"] = _HOMOGENEOUS.value
     config["SPLIT_TRAIN"] = _SPLIT_TRAIN.value
     config["NUM_LOOPS"] = _NUM_LOOPS.value
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
-    wandb.init(config=config)
+    wandb_name = "testing_" + str(datetime.now())
+    wandb_run_group = "tests_1"
+
+    wandb.init(config=config,
+               project="TEST",
+               name=wandb_name,
+               group=wandb_run_group,
+               mode="online")
 
     chkpt_dir = os.path.abspath("orbax_checkpoints")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
 
-    file_name = os.environ["WANDB_NAME"]
+    file_name = wandb_name
     if _CHKPT_LOAD_PATH.value is None:
-        chkpt_name = f'{os.environ["WANDB_RUN_GROUP"]}/num_agents={config["NUM_AGENTS"]}/{file_name}'
+        chkpt_name = f'{wandb_run_group}/num_agents={config["NUM_AGENTS"]}/{file_name}'
     else:
         file_name = _CHKPT_LOAD_PATH.value.split('/')[-1]
         chkpt_name = _CHKPT_LOAD_PATH.value

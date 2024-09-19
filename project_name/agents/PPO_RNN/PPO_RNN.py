@@ -69,7 +69,7 @@ class PPO_RNNAgent:
                  last_done[jnp.newaxis, :],
                  )
         _, _, last_val, _ = train_state.apply_fn(train_state.params, hstate, ac_in)
-        last_val = jnp.squeeze(last_val, axis=-1)
+        last_val = jnp.squeeze(last_val, axis=0)
 
         def _calculate_gae(traj_batch, last_val):
             def _get_advantages(gae_and_next_value, transition):
