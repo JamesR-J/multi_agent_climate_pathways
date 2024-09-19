@@ -105,7 +105,6 @@ class PPO_RNNAgent:
                                                        # traj_batch.avail_actions
                                                        ),
                                                       )
-                    sys.exit()
                     log_prob = pi.log_prob(traj_batch.action)
 
                     # CALCULATE VALUE LOSS
@@ -147,23 +146,15 @@ class PPO_RNNAgent:
             init_hstate = jnp.reshape(init_hstate, (1, self.config["NUM_ENVS"], -1))
 
             permutation = jrandom.permutation(_key, self.config["NUM_ENVS"])
-            print(traj_batch)
             traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
             batch = (init_hstate,  # TODO check this axis swapping etc if it works
                      traj_batch,
                      jnp.swapaxes(advantages, 0, 1).squeeze(),
                      jnp.swapaxes(targets, 0, 1).squeeze())
-            print(batch)
-            print("2")
             shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=1), batch)
-            print(shuffled_batch)
-            print("3")
-
             minibatches = jax.tree_util.tree_map(lambda x: jnp.swapaxes(
                 jnp.reshape(x, [x.shape[0], self.config["NUM_MINIBATCHES"], -1] + list(x.shape[2:]), ), 1, 0, ),
                                                  shuffled_batch, )
-            print(minibatches)
-            # sys.exit()
             train_state, total_loss = jax.lax.scan(_update_minibatch, train_state, minibatches)
 
             traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)  # TODO dodge to swap back again

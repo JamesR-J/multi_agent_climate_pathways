@@ -95,7 +95,7 @@ def main(_):
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
-    # wandb.init(config=config)
+    wandb.init(config=config)
     #
     # chkpt_dir = os.path.abspath("orbax_checkpoints")
     # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
