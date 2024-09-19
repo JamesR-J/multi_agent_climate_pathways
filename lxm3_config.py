@@ -1,6 +1,7 @@
 import sys
 import itertools
 from ml_collections import config_dict
+import jax.numpy as jnp
 
 def get_config():
     config = config_dict.ConfigDict()
@@ -36,6 +37,13 @@ def get_config():
 
 def sweep_SWEEP():
     seed_list = [28, 10, 98, 44, 22, 68]
+    # climate_damages = [[[1], [1]], [[1], [0.9]], [[1], [0.75]], [[1], [0.5]], [[1], [0.25]]]
+    climate_damages = ['"1", "1"',
+                       '"1", "0.9"',
+                       '"1", "0.75"',
+                       '"1", "0.5"',
+                       '"1", "0.25"',
+                       ]
     # seed_list = [44]
     # homogeneous = [False, True]
     homogeneous = [False]
@@ -50,14 +58,15 @@ def sweep_SWEEP():
     #                    ]  # TODO assertion for length of this and num agents innit
     num_loops = [5]
 
-    combinations = itertools.product(seed_list, homogeneous, num_agents, reward_function, num_loops)
+    combinations = itertools.product(seed_list, homogeneous, num_agents, reward_function, num_loops, climate_damages)
     result = [{"seed": seed,
                "homogeneous": homo,
                "num_agents": agent,
                "reward_type": reward,
                "split_train": False,
                "num_loops": num_loops,
-               "disable_jit": False} for seed, homo, agent, reward, num_loops in combinations]
+               "climate_damages": climate_damages,
+               "disable_jit": False} for seed, homo, agent, reward, num_loops, climate_damages in combinations]
 
     return result
 

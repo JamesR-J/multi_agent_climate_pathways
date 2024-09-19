@@ -61,6 +61,8 @@ _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB"], "which reward functions 
 _SPLIT_TRAIN = flags.DEFINE_boolean("split_train", False, "whether to run looped training or not")
 _NUM_LOOPS = flags.DEFINE_integer("num_loops", 2, "number of loops for split train")
 
+_CLIMATE_DAMAGES = flags.DEFINE_list("climate_damages", [[1], [1]], " climate damages stuff")
+
 _CONFIG = config_flags.DEFINE_config_file("config", None, "Config file")
 # TODO sort this out so have one total config or something, is a little dodge atm
 
@@ -92,6 +94,7 @@ def main(_):
     config["NEW_REWARD_TYPE"] = _REWARD_TYPE.value  # TODO added this for some reason as wandb struggling
     config["SPLIT_TRAIN"] = _SPLIT_TRAIN.value
     config["NUM_LOOPS"] = _NUM_LOOPS.value
+    config["CLIMATE_DAMAGES"] = _CLIMATE_DAMAGES.value
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 

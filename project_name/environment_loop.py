@@ -25,7 +25,8 @@ import os
 def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_input=None):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
-                          homogeneous=config["HOMOGENEOUS"])
+                          homogeneous=config["HOMOGENEOUS"],
+                          climate_damages=config["CLIMATE_DAMAGES"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
     config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * config["NUM_LOOPS"]  # TODO added in for linear schedule dodgyness
