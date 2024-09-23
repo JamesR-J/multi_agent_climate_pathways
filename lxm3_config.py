@@ -43,6 +43,7 @@ def sweep_SWEEP():
                        '"1", "0.75"',
                        '"1", "0.5"',
                        '"1", "0.25"',
+                       # '"1", "0.0"'
                        ]
     # seed_list = [44]
     # homogeneous = [False, True]

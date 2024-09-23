@@ -162,6 +162,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                           num_agents=config["NUM_AGENTS"],
                           homogeneous=config["HOMOGENEOUS"],
                           defined_param_start=config["DEFINED_PARAM_START"],
+                          climate_damages=config["CLIMATE_DAMAGES"],
                           evaluating=True)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])

@@ -27,7 +27,7 @@
 "HOMOGENEOUS": False
 
 "RUN_TRAIN": True  # False
-"RUN_EVAL": False
+"RUN_EVAL": True
 "NUM_EVAL_STEPS": 4000
 
 "DEFINED_PARAM_START": False
