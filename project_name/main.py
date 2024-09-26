@@ -26,7 +26,7 @@ from flax.training.train_state import TrainState
 _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", False, "jit or not for debugging")
 # _DISABLE_JIT = flags.DEFINE_boolean("disable_jit", True, "jit or not for debugging")
 
-_CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load from checkpoint path")
+# _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "single_save_coop_agent_sweep_11", "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "num_agents=7/coop_sweep_1710169124442_39", "whether to load from checkpoint path")
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "comp_sweep/num_agents=3/comp_sweep_1710354370386_33", "whether to load from checkpoint path")
@@ -44,6 +44,10 @@ _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", None, "whether to load
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=3/new_rnn_comp_tests_1713785465938_21", "whether to load from checkpoint path")  # "PB, max_A, max_A" seed:44
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=2/new_rnn_comp_tests_1713785448397_9", "whether to load from checkpoint path")  # "PB, max_Y" seed:44
 # _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "new_rnn_comp_tests/num_agents=2/new_rnn_comp_tests_1713785448397_10", "whether to load from checkpoint path")  # "PB, PB" seed:44
+
+# _CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "climate_damages_tests/num_agents=2/climate_damages_tests_1727103698092_26", "whether to load from checkpoint path")  # PB PB climate damages 1,1
+_CHKPT_LOAD_PATH = flags.DEFINE_string("chkpt_load_path", "climate_damages_tests/num_agents=2/climate_damages_tests_1727103698092_15", "whether to load from checkpoint path")  # PB PB climate damages 1,0.25
+
 
 _SEED = flags.DEFINE_integer("seed", 44, "Random seed")
 

@@ -380,7 +380,9 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
             episode_cmap = True
             # when ayse[:, :, 2] == [0.5] * num_agents then this marks a new episode so should change colour
             if episode_cmap:
-                cmaps = [sns.color_palette("mako", as_cmap=True)] * 10
+                # cmaps = [sns.color_palette("mako", as_cmap=True)] * 10
+                cmaps = cmaps = [sns.color_palette("rocket", as_cmap=True),
+                     sns.cubehelix_palette(start=2, rot=0, dark=0, light=0.9, reverse=True, as_cmap=True)]
                 traj_cmap = jnp.zeros_like(colour_diff)
                 increment_val = 0
 
