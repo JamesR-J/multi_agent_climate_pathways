@@ -193,3 +193,5 @@ cython_debug/
 /20240202-off2on_pretraining_analysis.ipynb
 /figures/
 /graphing/
+/lxm3_config.py
+/lxm3_launcher.py

@@ -20,7 +20,8 @@ import numpy as np
 def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_input=None):
     env = AYS_Environment(reward_type=config["REWARD_TYPE"],
                           num_agents=config["NUM_AGENTS"],
-                          homogeneous=config["HOMOGENEOUS"])
+                          homogeneous=config["HOMOGENEOUS"],
+                          climate_damages=config["CLIMATE_DAMAGES"])
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
     config["TOTAL_UPDATES"] = config["NUM_UPDATES"] * config["NUM_LOOPS"]
@@ -105,10 +106,7 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
             metric = jax.tree_map(lambda x: jnp.swapaxes(x, 1, 2), trajectory_batch.info)
 
             def callback(metric, train_state):
-                # if metric["update_steps"] >= 1000 and metric["update_steps"] <= 1250:  # comment this out when don't want it
-                #     checkpoint_manager.save(metric["update_steps"], train_state)
                 metric_dict = {
-                    # "returns_global": metric["returned_episode_returns"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "win_rate_global": metric["returned_won_episode"][:, :, 0][metric["returned_episode"][:, :, 0]].mean(),
                     "env_step": metric["update_steps"] * config["NUM_ENVS"] * config["NUM_STEPS"] + env_step_count_init
                 }
@@ -116,8 +114,6 @@ def run_train(config, checkpoint_manager, env_step_count_init=0, train_state_inp
                 for agent in env.agents:
                     metric_dict[f"returns_{agent}"] = metric["returned_episode_returns"][:, :, env.agent_ids[agent]][
                         metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
-                    # metric_dict[f"win_rate_{agent}"] = metric["returned_won_episode"][:, :, env.agent_ids[agent]][
-                    #     metric["returned_episode"][:, :, env.agent_ids[agent]]].mean()
 
                 wandb.log(metric_dict)
 
@@ -144,6 +140,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                           num_agents=config["NUM_AGENTS"],
                           homogeneous=config["HOMOGENEOUS"],
                           defined_param_start=config["DEFINED_PARAM_START"],
+                          climate_damages=config["CLIMATE_DAMAGES"],
                           evaluating=True)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"])
@@ -345,7 +342,7 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
                 max_value = jnp.max(colour_diff)
                 colour_diff = (colour_diff - min_value) / (max_value - min_value)
 
-            episode_cmap = True
+            episode_cmap = False
             # when ayse[:, :, 2] == [0.5] * num_agents then this marks a new episode so should change colour
             if episode_cmap:
                 cmaps = [sns.color_palette("mako", as_cmap=True)] * 10
@@ -362,10 +359,10 @@ def run_eval(config, orbax_checkpointer, chkpt_save_path, num_envs=1):
 
             scatter = ax3d.scatter(xs=ayse[:, a_ind, 3], ys=ayse[:, a_ind, 1], zs=ayse[:, a_ind, 0],
                                    c=colour_diff, alpha=0.8, s=1, cmap=cmaps[a_ind])
-            # legend1 = ax3d.legend(*scatter.legend_elements(),
-            #                       loc="upper left", title=title_val)
-            # ax3d.set_title(f"Agent {a_ind}, Reward Func: {env.reward_type[a_ind]}")
-            # ax3d.add_artist(legend1)
+            legend1 = ax3d.legend(*scatter.legend_elements(),
+                                  loc="upper left", title=title_val)
+            ax3d.set_title(f"Agent {a_ind}, Reward Func: {env.reward_type[a_ind]}")
+            ax3d.add_artist(legend1)
 
             return fig
 

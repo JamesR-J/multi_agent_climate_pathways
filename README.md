@@ -1,7 +1,7 @@
-# Multi-Agent Reinforcement Learning in climate models
-Using MARL to derive climate policy incorporating anthropogenic agents. 
+# Multi-Agent Reinforcement Learning in Integrated Assessment Models (IAMs)
+Using MARL to derive climate policy in a reductionist Socio-Environmental AYS environment.
 
-All learning algorithms utilise PyTorch (CUDA is recommended).
+All learning algorithms utilise JAX (CUDA is recommended).
 
 
 

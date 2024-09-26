@@ -20,6 +20,7 @@ _WORK_DIR = flags.DEFINE_string("workdir", "orbax_checkpoints", "Work unit direc
 _NUM_AGENTS = flags.DEFINE_integer("num_agents", 2, "number of agents")
 _REWARD_TYPE = flags.DEFINE_list("reward_type", ["PB", "PB"], "Agent reward types")
 _HOMOGENEOUS = flags.DEFINE_boolean("homogeneous", False, "whether homo or hetero")
+_CLIMATE_DAMAGES = flags.DEFINE_list("climate_damages", ["1", "0.25"], " climate damages stuff")
 _SPLIT_TRAIN = flags.DEFINE_boolean("split_train", False, "whether to run looped training or not")
 _NUM_LOOPS = flags.DEFINE_integer("num_loops", 2, "number of loops for split train")
 
@@ -33,6 +34,7 @@ def main(_):
     config["HOMOGENEOUS"] = _HOMOGENEOUS.value
     config["SPLIT_TRAIN"] = _SPLIT_TRAIN.value
     config["NUM_LOOPS"] = _NUM_LOOPS.value
+    config["CLIMATE_DAMAGES"] = _CLIMATE_DAMAGES.value
 
     config["AGENT_TYPE"] *= config["NUM_AGENTS"]
 
@@ -43,7 +45,7 @@ def main(_):
                project="TEST",
                name=wandb_name,
                group=wandb_run_group,
-               mode="online")
+               mode="disabled")
 
     chkpt_dir = os.path.abspath("orbax_checkpoints")
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()

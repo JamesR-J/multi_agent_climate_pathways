@@ -48,13 +48,15 @@ class InfoState:
 
 class AYS_Environment(object):
     def __init__(self, gamma=0.99, t0=0, dt=1, reward_type=['PB'], max_steps=600, image_dir='./images/', run_number=0,
-                 plot_progress=False, num_agents=3, homogeneous=False, defined_param_start=False, evaluating=False):
+                 plot_progress=False, num_agents=3, homogeneous=False, defined_param_start=False, evaluating=False,
+                 climate_damages=['"1", "0.25"']):
         self.management_cost = 0.5
         self.image_dir = image_dir
         self.run_number = run_number
         self.plot_progress = plot_progress
         self.max_steps = max_steps
         self.gamma = gamma
+        self.climate_damages = jnp.expand_dims(jnp.array(climate_damages, dtype=jnp.float32), axis=-1)
 
         self.homogeneous = homogeneous
         self.defined_param_start = defined_param_start
@@ -302,7 +304,7 @@ class AYS_Environment(object):
 
         poss_action_matrix = jnp.array([action_0, action_1, action_2, action_3])
 
-        return poss_action_matrix[actions, :]
+        return jnp.concatenate((poss_action_matrix[actions, :], self.climate_damages), axis=-1)
 
     @partial(jax.jit, static_argnums=(0,))
     def _ays_rescaled_rhs_marl(self, ayse: chex.Array, t: int, args: chex.Array) -> chex.Array:
@@ -315,7 +317,7 @@ class AYS_Environment(object):
         tau_A   = 50         = args[5]
         tau_S   = 50         = args[6]
         theta   = beta / (950 - A_offset) = args[7]
-        # trade = args[8]
+        climate_damages =    = args[8]
         """
         A_mid = 250
         Y_mid = 7e13
@@ -333,7 +335,7 @@ class AYS_Environment(object):
         E_tot = jnp.sum(E_matrix) / E_matrix.shape[0]
 
         adot = (E_tot - (A_matrix / args[:, 5])) * ays_inv_matrix[:, 0] * ays_inv_matrix[:, 0] / A_mid
-        ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix)
+        ydot = ayse[:, 1] * ays_inv_matrix[:, 1] * (args[:, 0] - args[:, 7] * A_matrix * args[:, 8])
         sdot = ((1 - G_matrix) * ays_inv_matrix[:, 2] * ays_inv_matrix[:, 2] * Y_matrix / (args[:, 1] * S_mid) -
                 ayse[:, 2] * ays_inv_matrix[:, 2] / args[:, 6])
 
